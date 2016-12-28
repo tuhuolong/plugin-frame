@@ -1,0 +1,26 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.chenhao.lib.plugin.frame">
+
+    <application
+        android:allowBackup="true"
+        android:label="@string/app_name"
+        android:supportsRtl="true">
+
+        <service
+            android:name="com.chenhao.lib.plugin.frame.runtime.bridge.PluginBridgeServiceMain"
+            android:exported="false" />
+
+
+        <service
+            android:name="com.chenhao.lib.plugin.frame.runtime.bridge.PluginBridgeServicePlugin1"
+            android:exported="false"
+            android:process=":plugin1" />
+
+        <service
+            android:name="com.chenhao.lib.plugin.frame.runtime.bridge.PluginBridgeServicePlugin2"
+            android:exported="false"
+            android:process=":plugin2" />
+
+    </application>
+
+</manifest>
