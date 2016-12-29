@@ -6,6 +6,8 @@ package com.chenhao.lib.plugin.frame;
  */
 
 public class PackageRawInfo {
+    // 插件Id
+    public String mPluginId;
     // 版本号
     public int mVersion;
     // 开发者id

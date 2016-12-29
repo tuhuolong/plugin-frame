@@ -12,14 +12,14 @@ import org.json.JSONObject;
 
 public class PluginDeveloperInfo {
     private String mDeveloperId;
-    private String mKey;
+    private String mCert;
 
     public static PluginDeveloperInfo buildFromPref(String developerId, String prefJsonStr) {
         PluginDeveloperInfo developerInfo = new PluginDeveloperInfo();
         try {
             JSONObject configJson = new JSONObject(prefJsonStr);
             developerInfo.mDeveloperId = developerId;
-            developerInfo.mKey = configJson.optString("key");
+            developerInfo.mCert = configJson.optString("cert");
         } catch (JSONException e) {
             return null;
         }
@@ -30,7 +30,7 @@ public class PluginDeveloperInfo {
         String jsonStr = "";
         try {
             JSONObject json = new JSONObject();
-            json.put("key", mKey);
+            json.put("cert", mCert);
             jsonStr = json.toString();
         } catch (JSONException e) {
         }
@@ -45,14 +45,14 @@ public class PluginDeveloperInfo {
         mDeveloperId = developerId;
     }
 
-    public synchronized String getKey() {
-        if (TextUtils.isEmpty(mKey)) {
+    public synchronized String getCert() {
+        if (TextUtils.isEmpty(mCert)) {
             return "";
         }
-        return mKey;
+        return mCert;
     }
 
-    public synchronized void setKey(String key) {
-        mKey = key;
+    public synchronized void setCert(String cert) {
+        mCert = cert;
     }
 }

@@ -7,4 +7,6 @@ package com.chenhao.lib.plugin.frame;
 
 public class PluginSetting {
     public static final boolean IS_DEBUG = true;
+
+    public static final int API_LEVEL = 1;
 }
