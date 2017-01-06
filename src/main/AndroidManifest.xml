@@ -7,6 +7,10 @@
         android:supportsRtl="true">
 
         <service
+            android:name=".PluginCoreService"
+            android:exported="false" />
+
+        <service
             android:name=".runtime.bridge.PluginBridgeServiceMain"
             android:exported="false" />
 

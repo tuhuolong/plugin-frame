@@ -5,15 +5,28 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.res.AssetManager;
+import android.content.res.Resources;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.text.TextUtils;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.util.concurrent.ConcurrentHashMap;
+
+import app.lib.plugin.frame.entity.PluginPackageInfo;
 import app.lib.plugin.frame.runtime.bridge.IBridgeServiceApi;
 import app.lib.plugin.frame.runtime.bridge.PluginBridgeServiceMain;
 import app.lib.plugin.frame.runtime.bridge.PluginBridgeServicePlugin1;
 import app.lib.plugin.frame.runtime.bridge.PluginBridgeServicePlugin2;
+import app.lib.plugin.frame.util.FileUtil;
+import app.lib.plugin.sdk.IMessageReceiver;
 import app.lib.plugin.sdk.PluginContext;
+import dalvik.system.DexClassLoader;
 
 /**
  * Created by chenhao on 16/12/24.
@@ -23,6 +36,9 @@ public class PluginRuntimeManager {
     private static final Object sLock = new Object();
 
     private static PluginRuntimeManager sInstance;
+    private final ConcurrentHashMap<String, PluginContext> mPackageContextMap = new ConcurrentHashMap<>();
+
+    private Context mAppContext;
 
     private IBridgeServiceApi mMainBridgeApiProxy;
     private IBridgeServiceApi mPlugin1BridgeApiProxy;
@@ -36,7 +52,7 @@ public class PluginRuntimeManager {
     // private Context mAppContext;
 
     private PluginRuntimeManager() {
-        // mAppContext = PluginSettings.sContext;
+        mAppContext = Plugin.getInstance().getAppContext();
     }
 
     public static PluginRuntimeManager getInstance() {
@@ -99,11 +115,11 @@ public class PluginRuntimeManager {
     // }
     //
 
-    private PluginProcess chooseProcess(int pluginId) {
-        return PluginProcess.MAIN;
+    private PluginProcess chooseProcess(String pluginId) {
+        return PluginProcess.PLUGIN1;
     }
 
-    public void sendMessage(final Context context, final int pluginId, final int msgType,
+    public void sendMessage(final Context context, final String pluginId, final int msgType,
             final Bundle msgArg) {
 
         final PluginProcess process = chooseProcess(pluginId);
@@ -139,7 +155,7 @@ public class PluginRuntimeManager {
         }
     }
 
-    void realSendMessage(IBridgeServiceApi apiProxy, int pluginId, int msgType, Bundle msgArg) {
+    void realSendMessage(IBridgeServiceApi apiProxy, String pluginId, int msgType, Bundle msgArg) {
         try {
             apiProxy.sendMessage(pluginId, msgType, msgArg, null);
         } catch (RemoteException e) {
@@ -194,9 +210,76 @@ public class PluginRuntimeManager {
         }
     }
 
-    public PluginContext loadApk(int pluginId) {
-        PluginContext pluginContext = null;
+    public PluginContext loadApk(PluginPackageInfo packageInfo) {
+        PluginContext pluginContext = mPackageContextMap.get(packageInfo.getPackagePath());
+        if (pluginContext != null) {
+            return pluginContext;
+        }
+
+        String packagePath = packageInfo.getPackagePath();
+
+        PackageManager pm = mAppContext.getPackageManager();
+        PackageInfo rawPackageInfo = pm.getPackageArchiveInfo(packagePath,
+                PackageManager.GET_META_DATA);
+
+        if (rawPackageInfo == null) {
+            return null;
+        }
+
+        String messageReceiverClassName = "";
+        if (rawPackageInfo.applicationInfo.metaData != null) {
+            messageReceiverClassName = rawPackageInfo.applicationInfo.metaData
+                    .getString("PluginMessageReceiver");
+        }
+
+        final String packageName = packageInfo.getPackageName();
+        DexClassLoader dexClassLoader = createDexClassLoader(packageInfo.getPluginId(),
+                packageInfo.getVersionCode(), packagePath);
+        AssetManager assetManager = createAssetManager(packagePath);
+        Resources resources = createResources(assetManager);
+        IMessageReceiver messageReceiver = null;
+        if (!TextUtils.isEmpty(messageReceiverClassName)) {
+            try {
+                Class<?> localClass = dexClassLoader.loadClass(messageReceiverClassName);
+                Constructor<?> localConstructor = localClass.getConstructor(new Class[] {});
+                Object instance = localConstructor.newInstance(new Object[] {});
+                messageReceiver = (IMessageReceiver) instance;
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        pluginContext = new PluginContext(dexClassLoader, assetManager, resources, messageReceiver);
+
+        mPackageContextMap.put(packageInfo.getPackagePath(), pluginContext);
+
         return pluginContext;
+    }
+
+    private DexClassLoader createDexClassLoader(String pluginId, int versionCode, String dexPath) {
+        String dexOptimizedPath = PluginSetting.getDexOptimizedDir(mAppContext, pluginId);
+        FileUtil.createDirIfNotExists(dexOptimizedPath);
+        DexClassLoader loader = new DexClassLoader(dexPath, dexOptimizedPath, null,
+                mAppContext.getClassLoader());
+        return loader;
+    }
+
+    private AssetManager createAssetManager(String dexPath) {
+        try {
+            AssetManager assetManager = AssetManager.class.newInstance();
+            Method addAssetPath = assetManager.getClass().getMethod("addAssetPath", String.class);
+            addAssetPath.invoke(assetManager, dexPath);
+            return assetManager;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Resources createResources(AssetManager assetManager) {
+        Resources superRes = mAppContext.getResources();
+        Resources resources = new Resources(assetManager, superRes.getDisplayMetrics(),
+                superRes.getConfiguration());
+        return resources;
     }
 
     private enum PluginProcess {
@@ -225,7 +308,7 @@ public class PluginRuntimeManager {
     //
     // if (packageInfo != null) {
     // rawInfo = new PackageRawInfo();
-    // rawInfo.mVersion = packageInfo.versionCode;
+    // rawInfo.mVersionCode = packageInfo.versionCode;
     // rawInfo.mPackageName = packageInfo.packageName;
     // ApplicationInfo appInfo = packageInfo.applicationInfo;
     // if (appInfo != null) {

@@ -9,7 +9,7 @@ public class PackageRawInfo {
     // 插件Id
     public String mPluginId;
     // 版本号
-    public int mVersion;
+    public int mVersionCode;
     // 开发者id
     public String mDeveloperId;
     // 最低ApiLevel

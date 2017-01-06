@@ -14,6 +14,9 @@ import android.support.annotation.Nullable;
 
 import app.lib.plugin.frame.PluginRuntimeManager;
 import app.lib.plugin.frame.common.MessageHandlerThread;
+import app.lib.plugin.frame.entity.PluginInfo;
+import app.lib.plugin.frame.runtime.api.PluginCoreApi;
+import app.lib.plugin.sdk.PluginContext;
 
 /**
  * Created by chenhao on 16/12/24.
@@ -30,12 +33,37 @@ public class PluginBridgeServiceBase extends Service {
 
     IBridgeServiceApi.Stub mStub = new IBridgeServiceApi.Stub() {
         @Override
-        public void sendMessage(final int pluginId, int msgType, Bundle msgArg,
+        public void sendMessage(final String pluginId, final int msgType, final Bundle msgArg,
                 IBridgeCallback bridgeCallback) throws RemoteException {
             mWorkerHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    PluginRuntimeManager.getInstance().loadApk(pluginId);
+                    PluginInfo pluginInfo = PluginCoreApi.getInstance().getPluginInfo(pluginId);
+
+                    if (pluginInfo == null) {
+                        return;
+                    }
+
+                    if (!pluginInfo.isInstalled()) {
+                        return;
+                    }
+
+                    PluginContext pluginContext = PluginRuntimeManager.getInstance()
+                            .loadApk(pluginInfo.getInstalledPackageInfo());
+
+                    if (pluginContext != null && pluginContext.getMessageReceiver() != null) {
+                        try {
+                            if (msgArg != null) {
+                                msgArg.setClassLoader(pluginContext.getClassLoader());
+                            }
+
+                            boolean handled = pluginContext.getMessageReceiver().handleMessage(
+                                    mAppContext, pluginContext, msgType, msgArg);
+
+                        } catch (Exception e) {
+
+                        }
+                    }
                 }
             });
         }
@@ -61,7 +89,7 @@ public class PluginBridgeServiceBase extends Service {
     public void onCreate() {
         mAppContext = getApplicationContext();
 
-        mWorkerThread = new MessageHandlerThread("PluginBridgeServiceWorker");
+        mWorkerThread = new MessageHandlerThread(this.getClass().getSimpleName() + "Worker");
         mWorkerThread.start();
         mWorkerHandler = new Handler(mWorkerThread.getLooper());
 

@@ -4,15 +4,15 @@ package app.lib.plugin.frame.runtime.api;
 import android.app.Application;
 import android.content.Context;
 
-import app.lib.plugin.sdk.PluginApi;
+import app.lib.plugin.sdk.PluginHostApi;
 
 /**
  * Created by chenhao on 16/12/24.
  */
 
-public class PluginApiImpl extends PluginApi {
+public class PluginHostApiImpl extends PluginHostApi {
 
-    public PluginApiImpl() {
+    public PluginHostApiImpl() {
         super();
     }
 
