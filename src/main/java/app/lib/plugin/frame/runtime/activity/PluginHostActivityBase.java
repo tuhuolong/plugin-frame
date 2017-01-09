@@ -2,102 +2,61 @@
 package app.lib.plugin.frame.runtime.activity;
 
 import android.content.Intent;
-import android.content.pm.ActivityInfo;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
 import android.os.PersistableBundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.FragmentActivity;
-import android.text.TextUtils;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.WindowManager;
 
-import app.lib.plugin.frame.debug.PluginErrorInfoActivity;
-import app.lib.plugin.sdk.PluginLoadedInfo;
-import app.lib.plugin.sdk.page.PluginBaseActivity;
+import java.lang.reflect.Constructor;
 
-import java.util.Iterator;
-import java.util.Set;
+import app.lib.plugin.frame.PluginRuntimeManager;
+import app.lib.plugin.frame.debug.PluginErrorInfoActivity;
+import app.lib.plugin.sdk.PluginContext;
+import app.lib.plugin.sdk.activity.PluginBaseActivity;
 
 /**
  * Created by chenhao on 16/12/24.
  */
 
 public class PluginHostActivityBase extends FragmentActivity {
-    public static final String EXTRA_DEVICE_DID = "extra_device_did";
-    public static final String EXTRA_DEVICE_MODEL = "extra_device_model";
-    public static final int ACTIVITY_REQUEST_VERIFY_PINCODE = 9999;
-    protected static final int MSG_EXIT_PROCESS = 1;
+
+    public static final String KEY_PLUGIN_ID = "key_plugin_id";
+    public static final String KEY_VERSION_CODE = "key_version_code";
+    public static final String KEY_ACTIVITY_CLASS = "key_activity_class";
+
     static final String FRAGMENTS_TAG = "android:support:fragments";
-    private static final int PROCESS_KILL_DELAY = 30 * 1000;
-    // private static ArrayList<WeakReference<PluginHostActivity>> mPluginHostActivityRefStack = new
-    // ArrayList<>();
 
-    private static Handler sHandle = null;
-
-    String mModel;
     Resources.Theme mTheme;
-    boolean mEnableVerifyPincode = false;
-    boolean mIsVerifyed = false;
-    boolean mIsSupportAd = false;
-    private PluginLoadedInfo mLoadedInfo;
-    private String mClass;
-    private String mPackageName;
-    private ActivityInfo mActivityInfo;
+    private PluginContext mPluginContext;
+    private String mActivityClass;
 
-    // private PluginBaseActivity mPluginActivity;
-    private PluginBaseActivity mXmPluginActivity;
-    private int mOnResumeTimestamp;
-    private String mPageName;
-
-    protected static Handler getHandler() {
-        if (sHandle == null) {
-            sHandle = new Handler(Looper.getMainLooper()) {
-                @Override
-                public void handleMessage(Message msg) {
-                    switch (msg.what) {
-                        case MSG_EXIT_PROCESS: {
-                            System.exit(0);
-                            break;
-                        }
-                    }
-                }
-            };
-        }
-        return sHandle;
-    }
-
-    // public XmPluginPackage getXmPluginPackage() {
-    // return this.mLoadedInfo;
-    // }
-
-    // ---------------------------- Android 原生接口 start ------------------------------
+    private PluginBaseActivity mPluginActivity;
 
     @Override
     public Resources getResources() {
-        if (mLoadedInfo == null) {
+        if (mPluginContext == null) {
             return super.getResources();
         } else {
-            return mLoadedInfo.getResources();
+            return mPluginContext.getResources();
         }
     }
 
     @Override
     public AssetManager getAssets() {
-        if (mLoadedInfo == null) {
+        if (mPluginContext == null) {
             return super.getAssets();
         } else {
-            return mLoadedInfo.getAssetManager();
+            return mPluginContext.getAssetManager();
         }
     }
 
@@ -112,10 +71,10 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public ClassLoader getClassLoader() {
-        if (mLoadedInfo == null) {
+        if (mPluginContext == null) {
             return super.getClassLoader();
         } else {
-            return mLoadedInfo.getClassLoader();
+            return mPluginContext.getClassLoader();
         }
     }
 
@@ -129,63 +88,37 @@ public class PluginHostActivityBase extends FragmentActivity {
 
         Intent intent = getIntent();
 
-        String did = "";
-        // 设置intent classloader
-        Set<String> categories = intent.getCategories();
-        if (categories != null) {
-            Iterator<String> iterator = categories.iterator();
-            while (iterator.hasNext()) {
-                String category = iterator.next();
-                if (category.startsWith("did:")) {
-                    did = category.substring("did:".length());
-                } else if (category.startsWith("model:")) {
-                    mModel = category.substring("model:".length());
-                }
-            }
+        String pluginId = intent.getStringExtra(KEY_PLUGIN_ID);
+        int versionCode = intent.getIntExtra(KEY_VERSION_CODE, 0);
+        mActivityClass = intent.getStringExtra(KEY_ACTIVITY_CLASS);
+
+        mPluginContext = PluginRuntimeManager.getInstance().getPluginContext(pluginId, versionCode);
+
+        if (mPluginContext == null) {
+            finish();
+            return;
         }
 
-        if (TextUtils.isEmpty(did) && TextUtils.isEmpty(mModel)) {
-            did = getIntent().getStringExtra(EXTRA_DEVICE_DID);
-        }
-
-        // mLoadedInfo = PluginRuntimeManager.getInstance().getXmPluginPackage(mModel);
-        // if (mLoadedInfo == null) {
+        // mPluginContext = PluginRuntimeManager.getInstance().getXmPluginPackage(mModel);
+        // if (mPluginContext == null) {
         // setResult(RESULT_CANCELED);
         // finish();
         // return;
         // }
         // }
         /// 注意，不要在此之前调用intent.getExtra之类接口
-        intent.setExtrasClassLoader(mLoadedInfo.getClassLoader());
+        intent.setExtrasClassLoader(mPluginContext.getClassLoader());
         // mPackageName = intent.getStringExtra(IXmPluginActivity.EXTRA_PACKAGE);
         // mClass = intent.getStringExtra(IXmPluginActivity.EXTRA_CLASS);
 
-        // getActivityInfo();
         handleActivityInfo();
         launchActivity(intent);
 
     }
 
-    // private void getActivityInfo() {
-    // if (mLoadedInfo == null)
-    // return;
-    // PackageInfo packageInfo = mLoadedInfo.packageInfo;
-    // if ((packageInfo.activities != null)
-    // && (packageInfo.activities.length > 0)) {
-    // if (mClass == null) {
-    // mClass = packageInfo.activities[0].name;
-    // }
-    // for (ActivityInfo a : packageInfo.activities) {
-    // if (a.name.equals(mClass)) {
-    // mActivityInfo = a;
-    // }
-    // }
-    // }
-    // }
-
     private void handleActivityInfo() {
         Resources.Theme superTheme = super.getTheme();
-        mTheme = mLoadedInfo.getResources().newTheme();
+        mTheme = mPluginContext.getResources().newTheme();
         mTheme.setTo(superTheme);
 
         int defaultTheme = 0;
@@ -203,36 +136,36 @@ public class PluginHostActivityBase extends FragmentActivity {
     }
 
     private void launchActivity(Intent intent) {
-        // if (mLoadedInfo != null) {
-        // try {
-        // Class<?> localClass = mLoadedInfo.classLoader.loadClass(mClass);
-        // Constructor<?> localConstructor = localClass.getConstructor(new Class[] {});
-        // Object instance = localConstructor.newInstance(new Object[] {});
-        // mXmPluginActivity = (XmPluginBaseActivity) instance;
-        // mXmPluginActivity.attach(this, mLoadedInfo, mDevice);
-        // mXmPluginActivity.setIntent(intent);
-        // mXmPluginActivity.onCreate(intent.getExtras());
-        // } catch (Throwable e) {
-        // PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
-        // finish();
-        // return;
-        // }
-        // } else {
-        // try {
-        // Class<?> localClass = getClassLoader().loadClass(mClass);
-        // Constructor<?> localConstructor = localClass
-        // .getConstructor(new Class[] {});
-        // Object instance = localConstructor.newInstance(new Object[] {});
-        // mXmPluginActivity = (XmPluginBaseActivity) instance;
-        // mXmPluginActivity.attach(this, mLoadedInfo, mDevice);
-        // mXmPluginActivity.setIntent(intent);
-        // mXmPluginActivity.onCreate(intent.getExtras());
-        // } catch (Exception e) {
-        // PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
-        // finish();
-        // return;
-        // }
-        // }
+        if (mPluginContext != null) {
+            try {
+                Class<?> localClass = mPluginContext.getClassLoader().loadClass(mActivityClass);
+                Constructor<?> localConstructor = localClass.getConstructor(new Class[] {});
+                Object instance = localConstructor.newInstance(new Object[] {});
+                mPluginActivity = (PluginBaseActivity) instance;
+                mPluginActivity.attach(this, mPluginContext);
+                mPluginActivity.setIntent(intent);
+                mPluginActivity.onCreate(intent.getExtras());
+            } catch (Throwable e) {
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
+                finish();
+                return;
+            }
+        } else {
+            try {
+                Class<?> localClass = getClassLoader().loadClass(mActivityClass);
+                Constructor<?> localConstructor = localClass
+                        .getConstructor(new Class[] {});
+                Object instance = localConstructor.newInstance(new Object[] {});
+                mPluginActivity = (PluginBaseActivity) instance;
+                mPluginActivity.attach(this, mPluginContext);
+                mPluginActivity.setIntent(intent);
+                mPluginActivity.onCreate(intent.getExtras());
+            } catch (Exception e) {
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
+                finish();
+                return;
+            }
+        }
 
     }
 
@@ -240,11 +173,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     public void recreate() {
         super.recreate();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.recreate();
+                mPluginActivity.recreate();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -255,11 +188,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     protected void onPostCreate(Bundle savedInstanceState) {
         super.onPostCreate(savedInstanceState);
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onPostCreate(savedInstanceState);
+                mPluginActivity.onPostCreate(savedInstanceState);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -270,11 +203,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     protected void onStart() {
         super.onStart();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onStart();
+                mPluginActivity.onStart();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -285,11 +218,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     protected void onResume() {
         super.onResume();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onResume();
+                mPluginActivity.onResume();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -300,11 +233,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     protected void onPostResume() {
         super.onPostResume();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onPostResume();
+                mPluginActivity.onPostResume();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -315,11 +248,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     protected void onPause() {
         super.onPause();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onPause();
+                mPluginActivity.onPause();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -330,11 +263,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     protected void onStop() {
         super.onStop();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onStop();
+                mPluginActivity.onStop();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -345,11 +278,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     protected void onDestroy() {
         super.onDestroy();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onDestroy();
+                mPluginActivity.onDestroy();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -360,11 +293,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     public void onSaveInstanceState(Bundle outState, PersistableBundle outPersistentState) {
         super.onSaveInstanceState(outState, outPersistentState);
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onSaveInstanceState(outState);
+                mPluginActivity.onSaveInstanceState(outState);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -375,11 +308,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     protected void onRestoreInstanceState(Bundle savedInstanceState) {
         super.onRestoreInstanceState(savedInstanceState);
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onRestoreInstanceState(savedInstanceState);
+                mPluginActivity.onRestoreInstanceState(savedInstanceState);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -389,17 +322,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (ACTIVITY_REQUEST_VERIFY_PINCODE == requestCode) {
-            if (resultCode == RESULT_CANCELED) {
-                finish();
-            }
-            return;
-        }
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onActivityResult(requestCode, resultCode, data);
+                mPluginActivity.onActivityResult(requestCode, resultCode, data);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -411,12 +338,12 @@ public class PluginHostActivityBase extends FragmentActivity {
             @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onRequestPermissionsResult(requestCode, permissions,
+                mPluginActivity.onRequestPermissionsResult(requestCode, permissions,
                         grantResults);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -427,11 +354,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onNewIntent(intent);
+                mPluginActivity.onNewIntent(intent);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -442,11 +369,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     public void onBackPressed() {
         // super.onBackPressed();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onBackPressed();
+                mPluginActivity.onBackPressed();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -455,12 +382,12 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                if (mXmPluginActivity.onTouchEvent(event))
+                if (mPluginActivity.onTouchEvent(event))
                     return true;
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return false;
             }
@@ -470,12 +397,12 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                if (mXmPluginActivity.dispatchTouchEvent(ev))
+                if (mPluginActivity.dispatchTouchEvent(ev))
                     return true;
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return false;
             }
@@ -485,12 +412,12 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                if (mXmPluginActivity.onKeyDown(keyCode, event))
+                if (mPluginActivity.onKeyDown(keyCode, event))
                     return true;
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return false;
             }
@@ -501,12 +428,12 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                if (mXmPluginActivity.onKeyUp(keyCode, event))
+                if (mPluginActivity.onKeyUp(keyCode, event))
                     return true;
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return false;
             }
@@ -517,12 +444,12 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public boolean onKeyLongPress(int keyCode, KeyEvent event) {
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                if (mXmPluginActivity.onKeyLongPress(keyCode, event))
+                if (mPluginActivity.onKeyLongPress(keyCode, event))
                     return true;
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return false;
             }
@@ -532,12 +459,12 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public boolean onKeyMultiple(int keyCode, int repeatCount, KeyEvent event) {
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                if (mXmPluginActivity.onKeyMultiple(keyCode, repeatCount, event))
+                if (mPluginActivity.onKeyMultiple(keyCode, repeatCount, event))
                     return true;
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return false;
             }
@@ -547,12 +474,12 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public boolean onKeyShortcut(int keyCode, KeyEvent event) {
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                if (mXmPluginActivity.onKeyShortcut(keyCode, event))
+                if (mPluginActivity.onKeyShortcut(keyCode, event))
                     return true;
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return false;
             }
@@ -562,11 +489,11 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public void onWindowAttributesChanged(WindowManager.LayoutParams params) {
-        if (mXmPluginActivity != null)
+        if (mPluginActivity != null)
             try {
-                mXmPluginActivity.onWindowAttributesChanged(params);
+                mPluginActivity.onWindowAttributesChanged(params);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -575,11 +502,11 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
-        if (mXmPluginActivity != null)
+        if (mPluginActivity != null)
             try {
-                mXmPluginActivity.onWindowFocusChanged(hasFocus);
+                mPluginActivity.onWindowFocusChanged(hasFocus);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -588,11 +515,11 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-        if (mXmPluginActivity != null)
+        if (mPluginActivity != null)
             try {
-                mXmPluginActivity.onCreateOptionsMenu(menu);
+                mPluginActivity.onCreateOptionsMenu(menu);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return false;
             }
@@ -601,11 +528,11 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        if (mXmPluginActivity != null)
+        if (mPluginActivity != null)
             try {
-                mXmPluginActivity.onOptionsItemSelected(item);
+                mPluginActivity.onOptionsItemSelected(item);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return false;
             }
@@ -616,11 +543,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     public void onContentChanged() {
         // super.onContentChanged();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onContentChanged();
+                mPluginActivity.onContentChanged();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -631,11 +558,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     public void onAttachedToWindow() {
         super.onAttachedToWindow();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onAttachedToWindow();
+                mPluginActivity.onAttachedToWindow();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -646,11 +573,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     public void onDetachedFromWindow() {
         super.onDetachedFromWindow();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onDetachedFromWindow();
+                mPluginActivity.onDetachedFromWindow();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -661,11 +588,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     public void onLowMemory() {
         super.onLowMemory();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onLowMemory();
+                mPluginActivity.onLowMemory();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -676,11 +603,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onTrimMemory(level);
+                mPluginActivity.onTrimMemory(level);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -689,12 +616,12 @@ public class PluginHostActivityBase extends FragmentActivity {
 
     @Override
     public boolean onTrackballEvent(MotionEvent event) {
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                if (mXmPluginActivity.onTrackballEvent(event))
+                if (mPluginActivity.onTrackballEvent(event))
                     return true;
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return false;
             }
@@ -707,11 +634,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     public void onUserInteraction() {
         super.onUserInteraction();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onUserInteraction();
+                mPluginActivity.onUserInteraction();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -722,11 +649,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
 
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onUserLeaveHint();
+                mPluginActivity.onUserLeaveHint();
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }
@@ -736,11 +663,11 @@ public class PluginHostActivityBase extends FragmentActivity {
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        if (mXmPluginActivity != null) {
+        if (mPluginActivity != null) {
             try {
-                mXmPluginActivity.onConfigurationChanged(newConfig);
+                mPluginActivity.onConfigurationChanged(newConfig);
             } catch (Exception e) {
-                PluginErrorInfoActivity.showErrorInfo(this, mLoadedInfo, e);
+                PluginErrorInfoActivity.showErrorInfo(this, mPluginContext, e);
                 finish();
                 return;
             }

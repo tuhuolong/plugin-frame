@@ -19,6 +19,9 @@ import java.lang.reflect.Method;
 import java.util.concurrent.ConcurrentHashMap;
 
 import app.lib.plugin.frame.entity.PluginPackageInfo;
+import app.lib.plugin.frame.runtime.activity.PluginHostActivityMain;
+import app.lib.plugin.frame.runtime.activity.PluginHostActivityPlugin1;
+import app.lib.plugin.frame.runtime.activity.PluginHostActivityPlugin2;
 import app.lib.plugin.frame.runtime.bridge.IBridgeServiceApi;
 import app.lib.plugin.frame.runtime.bridge.PluginBridgeServiceMain;
 import app.lib.plugin.frame.runtime.bridge.PluginBridgeServicePlugin1;
@@ -115,7 +118,11 @@ public class PluginRuntimeManager {
     // }
     //
 
-    private PluginProcess chooseProcess(String pluginId) {
+    public static String getPluginContextId(String pluginId, int versionCode) {
+        return pluginId + "_" + versionCode;
+    }
+
+    public PluginProcess chooseProcess(String pluginId) {
         return PluginProcess.PLUGIN1;
     }
 
@@ -127,7 +134,7 @@ public class PluginRuntimeManager {
         IBridgeServiceApi apiProxy = getBridgeApiProxy(process);
         if (apiProxy == null) {
 
-            Class clazz = getPluginBridgeServiceClass(process);
+            Class clazz = getBridgeServiceClass(process);
             if (clazz == null) {
                 return;
             }
@@ -198,13 +205,25 @@ public class PluginRuntimeManager {
         }
     }
 
-    private Class getPluginBridgeServiceClass(PluginProcess runningProcess) {
-        if (runningProcess == PluginProcess.MAIN) {
+    private Class getBridgeServiceClass(PluginProcess process) {
+        if (process == PluginProcess.MAIN) {
             return PluginBridgeServiceMain.class;
-        } else if (runningProcess == PluginProcess.PLUGIN1) {
+        } else if (process == PluginProcess.PLUGIN1) {
             return PluginBridgeServicePlugin1.class;
-        } else if (runningProcess == PluginProcess.PLUGIN2) {
+        } else if (process == PluginProcess.PLUGIN2) {
             return PluginBridgeServicePlugin2.class;
+        } else {
+            return null;
+        }
+    }
+
+    public Class getHostActivityClass(PluginProcess process) {
+        if (process == PluginProcess.MAIN) {
+            return PluginHostActivityMain.class;
+        } else if (process == PluginProcess.PLUGIN1) {
+            return PluginHostActivityPlugin1.class;
+        } else if (process == PluginProcess.PLUGIN2) {
+            return PluginHostActivityPlugin2.class;
         } else {
             return null;
         }
@@ -233,8 +252,9 @@ public class PluginRuntimeManager {
         }
 
         final String packageName = packageInfo.getPackageName();
-        DexClassLoader dexClassLoader = createDexClassLoader(packageInfo.getPluginId(),
-                packageInfo.getVersionCode(), packagePath);
+        String pluginId = packageInfo.getPluginId();
+        int versionCode = packageInfo.getVersionCode();
+        DexClassLoader dexClassLoader = createDexClassLoader(pluginId, versionCode, packagePath);
         AssetManager assetManager = createAssetManager(packagePath);
         Resources resources = createResources(assetManager);
         IMessageReceiver messageReceiver = null;
@@ -249,11 +269,18 @@ public class PluginRuntimeManager {
             }
         }
 
-        pluginContext = new PluginContext(dexClassLoader, assetManager, resources, messageReceiver);
+        pluginContext = new PluginContext(pluginId, versionCode, dexClassLoader, assetManager,
+                resources, messageReceiver);
 
-        mPackageContextMap.put(packageInfo.getPackagePath(), pluginContext);
+        mPackageContextMap.put(
+                getPluginContextId(packageInfo.getPluginId(), packageInfo.getVersionCode()),
+                pluginContext);
 
         return pluginContext;
+    }
+
+    public PluginContext getPluginContext(String pluginId, int versionCode) {
+        return mPackageContextMap.get(getPluginContextId(pluginId, versionCode));
     }
 
     private DexClassLoader createDexClassLoader(String pluginId, int versionCode, String dexPath) {
@@ -282,7 +309,7 @@ public class PluginRuntimeManager {
         return resources;
     }
 
-    private enum PluginProcess {
+    public enum PluginProcess {
         MAIN("main"), PLUGIN1("plugin1"), PLUGIN2("plugin2");
 
         private String mValue;
@@ -295,37 +322,6 @@ public class PluginRuntimeManager {
             return mValue;
         }
     }
-
-    // public static PackageRawInfo loadPackageInfo(Context context, String packagePath) {
-    // PackageRawInfo rawInfo = null;
-    //
-    // if (TextUtils.isEmpty(packagePath)) {
-    // return null;
-    // }
-    //
-    // PackageInfo packageInfo = context.getPackageManager().getPackageArchiveInfo(
-    // packagePath, PackageManager.GET_META_DATA);
-    //
-    // if (packageInfo != null) {
-    // rawInfo = new PackageRawInfo();
-    // rawInfo.mVersionCode = packageInfo.versionCode;
-    // rawInfo.mPackageName = packageInfo.packageName;
-    // ApplicationInfo appInfo = packageInfo.applicationInfo;
-    // if (appInfo != null) {
-    // Bundle bundle = appInfo.metaData;
-    // if (bundle != null) {
-    // String urls = bundle.getString("urls", "");
-    // rawInfo.mUrlList = Arrays.asList(urls.split("\\|"));
-    // rawInfo.mMinApiLevel = bundle.getInt("minPluginSdkApiVersion", 0);
-    // rawInfo.mDeveloperId = getDeveloperIdFromBundleHelper(bundle);
-    // rawInfo.mPlatform = bundle.getString("MiHomePlatform", "");
-    // rawInfo.mMessageHandleName = bundle.getString("message_handler", "");
-    // }
-    // }
-    // }
-    //
-    // return rawInfo;
-    // }
 
     // private static long getDeveloperIdFromBundleHelper(Bundle bundle) {
     // if (bundle == null) {
@@ -344,56 +340,6 @@ public class PluginRuntimeManager {
     // }
     //
     // private static final String MPK_KEY_DEVELOPER_ID = "MiHomeDeveloperId";
-
-    /**
-     * 加载apk文件，获取apk XmPluginPackage 信息
-     *
-     * @param
-     * @return
-     */
-    // public PluginLoadedInfo loadApk(String packagePath, PackageRawInfo packageRawInfo) {
-    // XmPluginPackage loadedInfo = mPackagePathPackages.get(packagePath);
-    // if (loadedInfo != null)
-    // return loadedInfo;
-    //
-    // if (packageRawInfo == null) {
-    // packageRawInfo = loadPackageInfo(mAppContext, packagePath);
-    // }
-    // if (packageRawInfo == null) {
-    // return null;
-    // }
-    //
-    // DexClassLoader dexClassLoader = createDexClassLoader(packageRawInfo, packagePath);
-    // AssetManager assetManager = createAssetManager(packagePath);
-    // Resources resources = createResources(assetManager);
-    // IXmPluginMessageReceiver xmPluginMessageReceiver = null;
-    // if (!TextUtils.isEmpty(packageRawInfo.mMessageHandleName)) {
-    // try {
-    // Class<?> localClass = dexClassLoader.loadClass(packageRawInfo.mMessageHandleName);
-    // Constructor<?> localConstructor = localClass
-    // .getConstructor(new Class[]{});
-    // Object instance = localConstructor.newInstance(new Object[]{});
-    // xmPluginMessageReceiver = (IXmPluginMessageReceiver) instance;
-    // } catch (Exception e) {
-    // Log.e(TAG, "load apk", e);
-    // return null;
-    // }
-    // }
-    //
-    // loadedInfo = new XmPluginPackage(packagePath, packageRawInfo, dexClassLoader, assetManager,
-    // resources, xmPluginMessageReceiver);
-    //// ApplicationInfo appInfo = rawPackageInfo.applicationInfo;
-    //// if (Build.VERSION.SDK_INT >= 8) {
-    //// appInfo.sourceDir = packagePath;
-    //// appInfo.publicSourceDir = packagePath;
-    //// }
-    //
-    // for (String url : packageRawInfo.mUrlList) {
-    // mUrlPackages.put(url, loadedInfo);
-    // }
-    // mPackagePathPackages.put(packagePath, loadedInfo);
-    // return loadedInfo;
-    // }
 
     // private DexClassLoader createDexClassLoader(PackageRawInfo packageRawInfo, String dexPath) {
     // String dexOptimizedPath = PluginSettings.getDexOptimizedDir(mAppContext, packageRawInfo);

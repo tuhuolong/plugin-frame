@@ -14,14 +14,14 @@ import java.io.Writer;
 
 import app.lib.plugin.frame.PluginSetting;
 import app.lib.plugin.frame.R;
-import app.lib.plugin.sdk.PluginLoadedInfo;
+import app.lib.plugin.sdk.PluginContext;
 
 /**
  * Created by chenhao on 16/12/24.
  */
 
 public class PluginErrorInfoActivity extends FragmentActivity {
-    public static void showErrorInfo(Context context, PluginLoadedInfo loadedInfo,
+    public static void showErrorInfo(Context context, PluginContext pluginContext,
             Throwable throwable) {
         if (PluginSetting.IS_DEBUG) {
             Intent intent = new Intent(context, PluginErrorInfoActivity.class);

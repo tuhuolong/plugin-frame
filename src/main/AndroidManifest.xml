@@ -25,6 +25,30 @@
             android:exported="false"
             android:process=":plugin2" />
 
+        <activity
+            android:name=".runtime.activity.PluginHostActivityMain"
+            android:configChanges="keyboardHidden|keyboard|orientation|screenSize"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.NoTitleBar" />
+
+        <activity
+            android:name=".runtime.activity.PluginHostActivityPlugin1"
+            android:configChanges="keyboardHidden|keyboard|orientation|screenSize"
+            android:exported="false"
+            android:process=":plugin1"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.NoTitleBar" />
+
+        <activity
+            android:name=".runtime.activity.PluginHostActivityPlugin2"
+            android:configChanges="keyboardHidden|keyboard|orientation|screenSize"
+            android:exported="false"
+            android:process=":plugin2"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.NoTitleBar" />
+
+
     </application>
 
 </manifest>

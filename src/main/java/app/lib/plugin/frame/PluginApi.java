@@ -58,9 +58,9 @@ public class PluginApi {
                         }
                     });
         } else if (!pluginInfo.isDownloaded() && pluginInfo.isInstalled()) {
-
+            PluginRuntimeManager.getInstance().sendMessage(context, pluginId, msgType, msgArg);
         } else {
-
+            PluginRuntimeManager.getInstance().sendMessage(context, pluginId, msgType, msgArg);
         }
 
     }

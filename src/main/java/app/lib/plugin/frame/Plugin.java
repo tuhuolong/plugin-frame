@@ -23,6 +23,7 @@ public class Plugin {
 
     private static Object sLock = new Object();
 
+    private Application mApplication;
     private Context mAppContext;
 
     private ServiceConnection mServiceConnection = new ServiceConnection() {
@@ -72,11 +73,16 @@ public class Plugin {
     public void start(Application application) {
         new PluginHostApiImpl();
 
+        mApplication = application;
         mAppContext = application;
 
         PluginManager.getInstance();
 
         bindCoreService();
+    }
+
+    public Application getApplication() {
+        return mApplication;
     }
 
     public Context getAppContext() {
