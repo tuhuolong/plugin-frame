@@ -188,6 +188,106 @@ public class PluginManager {
         }
     }
 
+    public void installDebugPlugin(String apkPath, final AsyncCallback<Void, Error> callback) {
+        if (!PluginSetting.IS_DEBUG) {
+            if (callback != null) {
+                callback.sendFailureMessage(new Error(-1, ""));
+            }
+            return;
+        }
+
+        PackageRawInfo rawInfo = getPackageRawInfo(apkPath);
+        if (rawInfo == null) {
+            if (callback != null) {
+                callback.sendFailureMessage(new Error(-1, ""));
+            }
+            return;
+        }
+
+        PluginDeveloperInfo developerInfo = getPluginDeveloperInfo(rawInfo.mDeveloperId);
+        boolean isSignatureValid = validateSignature(developerInfo, apkPath);
+        if (!isSignatureValid) {
+            FileUtil.deleteFile(apkPath);
+            if (callback != null) {
+                callback.sendFailureMessage(new Error(-1, "signature wrong"));
+            }
+            return;
+        }
+
+        boolean isMinApiLevelValid = validateMinApiLevel(rawInfo.mMinApiLevel);
+        if (!isMinApiLevelValid) {
+            FileUtil.deleteFile(apkPath);
+            if (callback != null) {
+                callback.sendFailureMessage(new Error(-1, "minApiLevel wrong"));
+            }
+            return;
+        }
+
+        String downloadedPath = getDownloadedPath(rawInfo.mPluginId, rawInfo.mVersionCode);
+
+        boolean isCopySuccess = FileUtil.copyFileToFile(apkPath, downloadedPath);
+
+        FileUtil.deleteFile(apkPath);
+
+        if (isCopySuccess) {
+            rawInfo = getPackageRawInfo(downloadedPath);
+            if (rawInfo != null) {
+
+                PluginInfo pluginInfo = getPluginInfo(rawInfo.mPluginId);
+
+                if (pluginInfo != null) {
+                    PluginPackageInfo downloadedPackageInfo = new PluginPackageInfo();
+                    downloadedPackageInfo.setPluginId(rawInfo.mPluginId);
+                    downloadedPackageInfo.setVersionCode(rawInfo.mVersionCode);
+                    downloadedPackageInfo.setDeveloperId(rawInfo.mDeveloperId);
+                    downloadedPackageInfo.setMinApiLevel(rawInfo.mMinApiLevel);
+                    downloadedPackageInfo.setPackageName(rawInfo.mPackageName);
+                    downloadedPackageInfo.setPackagePath(downloadedPath);
+
+                    // 清理
+
+                    pluginInfo.setInstalledPackageInfo(null);
+                    pluginInfo.setDownloadedPackageInfo(downloadedPackageInfo);
+
+                    installPlugin(pluginInfo, downloadedPackageInfo,
+                            new AsyncCallback<Void, Error>() {
+                                @Override
+                                public void onSuccess(Void result) {
+                                    if (callback != null) {
+                                        callback.sendSuccessMessage(null);
+                                    }
+                                }
+
+                                @Override
+                                public void onFailure(Error error) {
+                                    if (callback != null) {
+                                        callback.sendFailureMessage(
+                                                new Error(-1, "PluginInfo null"));
+                                    }
+                                }
+                            });
+
+                } else {
+                    FileUtil.deleteFile(downloadedPath);
+
+                    if (callback != null) {
+                        callback.sendFailureMessage(new Error(-1, "PluginInfo null"));
+                    }
+                }
+            } else {
+                FileUtil.deleteFile(downloadedPath);
+
+                if (callback != null) {
+                    callback.sendFailureMessage(new Error(-1, "MinApiLevel wrong"));
+                }
+            }
+        } else {
+            if (callback != null) {
+                callback.sendFailureMessage(new Error(-1, "copy wrong"));
+            }
+        }
+    }
+
     private PackageRawInfo getPackageRawInfo(String packagePath) {
         PackageRawInfo rawInfo = null;
 

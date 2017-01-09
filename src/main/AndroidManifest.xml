@@ -48,6 +48,14 @@
             android:screenOrientation="portrait"
             android:theme="@android:style/Theme.NoTitleBar" />
 
+        <receiver
+            android:name=".debug.OpenApiReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="app.lib.plugin.action.OPEN_API" />
+            </intent-filter>
+        </receiver>
+
 
     </application>
 
