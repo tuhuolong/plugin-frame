@@ -76,8 +76,8 @@ public class PluginSetting {
     }
 
     public static String getSoBaseDir(Context context) {
-        String SO_INSTALL_DIR = context.getFilesDir().getPath() + File.separator + "plugin"
-                + File.separator + "install" + File.separator + "lib";
+        String SO_INSTALL_DIR = PluginManager.getInstance().getInstalledBasePath() + File.separator
+                + "lib";
         return SO_INSTALL_DIR;
     }
 

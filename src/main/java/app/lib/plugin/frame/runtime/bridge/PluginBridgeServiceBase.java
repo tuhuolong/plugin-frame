@@ -69,6 +69,12 @@ public class PluginBridgeServiceBase extends Service {
         }
 
         @Override
+        public void clearPluginContext(String pluginId, int versionCode,
+                IBridgeCallback bridgeCallback) throws RemoteException {
+
+        }
+
+        @Override
         public void startService(final String targetPluginHostServiceClassName, long pluginId,
                 final long packageId, final Intent startIntent, final String pluginServiceClassName)
                 throws RemoteException {

@@ -169,6 +169,10 @@ public class PluginRuntimeManager {
         }
     }
 
+    public void clearPluginContext(String pluginId, int versionCode) {
+
+    }
+
     public IBridgeServiceApi getBridgeApiProxy(PluginProcess process) {
         if (process == null) {
             return null;
@@ -230,7 +234,8 @@ public class PluginRuntimeManager {
     }
 
     public PluginContext loadApk(PluginPackageInfo packageInfo) {
-        PluginContext pluginContext = mPackageContextMap.get(packageInfo.getPackagePath());
+        PluginContext pluginContext = mPackageContextMap
+                .get(getPluginContextId(packageInfo.getPluginId(), packageInfo.getVersionCode()));
         if (pluginContext != null) {
             return pluginContext;
         }

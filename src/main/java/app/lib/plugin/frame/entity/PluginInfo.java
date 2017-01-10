@@ -4,6 +4,9 @@ package app.lib.plugin.frame.entity;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 /**
  * Created by chenhao on 17/1/6.
  */
@@ -24,8 +27,10 @@ public class PluginInfo implements Parcelable {
     private String mName;
     private String mIcon;
     // 已安装信息
+    private int mInstalledVersionCode;
     private PluginPackageInfo mInstalledPackageInfo;
     // 已下载信息
+    private int mDownloadedVersionCode;
     private PluginPackageInfo mDownloadedPackageInfo;
 
     public PluginInfo() {
@@ -35,8 +40,39 @@ public class PluginInfo implements Parcelable {
         this.mPluginId = in.readString();
         this.mName = in.readString();
         this.mIcon = in.readString();
+        this.mInstalledVersionCode = in.readInt();
         this.mInstalledPackageInfo = in.readParcelable(PluginPackageInfo.class.getClassLoader());
+        this.mDownloadedVersionCode = in.readInt();
         this.mDownloadedPackageInfo = in.readParcelable(PluginPackageInfo.class.getClassLoader());
+    }
+
+    public static PluginInfo buildFromPref(String pluginId, String prefJsonStr) {
+        PluginInfo pluginInfo = new PluginInfo();
+        try {
+            JSONObject configJson = new JSONObject(prefJsonStr);
+            pluginInfo.mPluginId = pluginId;
+            pluginInfo.mName = configJson.optString("name");
+            pluginInfo.mIcon = configJson.optString("icon");
+            pluginInfo.mInstalledVersionCode = configJson.optInt("installed");
+            pluginInfo.mDownloadedVersionCode = configJson.optInt("downloaded");
+        } catch (JSONException e) {
+            return null;
+        }
+        return pluginInfo;
+    }
+
+    public synchronized String toPrefJsonStr() {
+        String jsonStr = "";
+        try {
+            JSONObject json = new JSONObject();
+            json.put("name", mName);
+            json.put("icon", mIcon);
+            json.put("installed", mInstalledVersionCode);
+            json.put("downloaded", mDownloadedVersionCode);
+            jsonStr = json.toString();
+        } catch (JSONException e) {
+        }
+        return jsonStr;
     }
 
     public synchronized String getPluginId() {
@@ -67,7 +103,9 @@ public class PluginInfo implements Parcelable {
         return mInstalledPackageInfo;
     }
 
-    public synchronized void setInstalledPackageInfo(PluginPackageInfo installedPackageInfo) {
+    public synchronized void setInstalledPackageInfo(int installedVersionCode,
+            PluginPackageInfo installedPackageInfo) {
+        mInstalledVersionCode = installedVersionCode;
         mInstalledPackageInfo = installedPackageInfo;
     }
 
@@ -75,7 +113,9 @@ public class PluginInfo implements Parcelable {
         return mDownloadedPackageInfo;
     }
 
-    public synchronized void setDownloadedPackageInfo(PluginPackageInfo downloadedPackageInfo) {
+    public synchronized void setDownloadedPackageInfo(int downloadedVersionCode,
+            PluginPackageInfo downloadedPackageInfo) {
+        mDownloadedVersionCode = downloadedVersionCode;
         mDownloadedPackageInfo = downloadedPackageInfo;
     }
 
@@ -85,6 +125,14 @@ public class PluginInfo implements Parcelable {
 
     public synchronized boolean isInstalled() {
         return mInstalledPackageInfo != null;
+    }
+
+    public synchronized int getInstalledVersionCode() {
+        return mInstalledVersionCode;
+    }
+
+    public synchronized int getDownloadedVersionCode() {
+        return mDownloadedVersionCode;
     }
 
     @Override
@@ -97,7 +145,9 @@ public class PluginInfo implements Parcelable {
         dest.writeString(this.mPluginId);
         dest.writeString(this.mName);
         dest.writeString(this.mIcon);
+        dest.writeInt(this.mInstalledVersionCode);
         dest.writeParcelable(this.mInstalledPackageInfo, flags);
+        dest.writeInt(this.mDownloadedVersionCode);
         dest.writeParcelable(this.mDownloadedPackageInfo, flags);
     }
 }

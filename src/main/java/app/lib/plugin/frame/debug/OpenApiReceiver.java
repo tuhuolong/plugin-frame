@@ -8,7 +8,7 @@ import android.text.TextUtils;
 
 import app.lib.asynccallback.AsyncCallback;
 import app.lib.asynccallback.Error;
-import app.lib.plugin.frame.PluginManager;
+import app.lib.plugin.frame.PluginApi;
 
 /**
  * Created by chenhao on 17/1/9.
@@ -36,7 +36,7 @@ public class OpenApiReceiver extends BroadcastReceiver {
                 if (msgType.equalsIgnoreCase("plugin_debug")) {
                     String apkPath = intent.getStringExtra("apk_path");
 
-                    PluginManager.getInstance().installDebugPlugin(apkPath,
+                    PluginApi.getInstance().installDebugPlugin(apkPath,
                             new AsyncCallback<Void, Error>() {
                                 @Override
                                 public void onSuccess(Void result) {

@@ -18,14 +18,19 @@ import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import app.lib.asynccallback.AsyncCallback;
 import app.lib.asynccallback.Error;
 import app.lib.plugin.frame.common.MessageHandlerThread;
+import app.lib.plugin.frame.entity.PluginDeveloperInfo;
 import app.lib.plugin.frame.entity.PluginInfo;
 import app.lib.plugin.frame.entity.PluginPackageInfo;
 import app.lib.plugin.frame.util.ByteUtil;
 import app.lib.plugin.frame.util.FileUtil;
+import app.lib.plugin.frame.util.PreferenceUtil;
+
+import static app.lib.plugin.frame.util.FileUtil.copyFileToFile;
 
 /**
  * Created by chenhao on 16/12/24.
@@ -33,14 +38,14 @@ import app.lib.plugin.frame.util.FileUtil;
 
 public class PluginManager {
 
-    public static final boolean ENABLE_SIGNATURE_VALIDATE = false;
-
     private static final String META_KEY_PLUGIN_ID = "PluginId";
     private static final String META_KEY_MIN_API_LEVEL = "PluginMinApiLevel";
     private static final String META_KEY_DEVELOPER_ID = "PluginDeveloperId";
 
     private static final String PREF_PLUGIN_INFO_PREF = PluginManager.class.getName()
             + ".plugin_info_pref";
+    private static final String PREF_DEVELOPER_INFO_PREF = PluginManager.class.getName()
+            + ".developer_info_pref";
 
     private static final Object sLock = new Object();
     private static final String ASSETS_PLUGIN_DIR = "plugin";
@@ -56,22 +61,23 @@ public class PluginManager {
     private boolean mIsInitialized = false;
 
     private SharedPreferences mPluginInfoPref;
-    private Map<String, PluginInfo> mPluginInfoMap = new HashMap();
-    private Map<String, PluginDeveloperInfo> mDeveloperInfoMap = new HashMap<>();
-    // private Map<String, Map<Integer, PluginPackageInfo>> mDownloadedPackageInfoMap = new
-    // HashMap<>();
+    private SharedPreferences mDeveloperInfoPref;
+    private Map<String, PluginInfo> mPluginInfoMap = new ConcurrentHashMap<>();
+    private Map<String, PluginDeveloperInfo> mDeveloperInfoMap = new ConcurrentHashMap<>();
+    private Map<String, Map<Integer, PluginPackageInfo>> mDownloadedPackageInfoMap = new ConcurrentHashMap<>();
+    private Map<String, Map<Integer, PluginPackageInfo>> mInstalledPackageInfoMap = new ConcurrentHashMap<>();
 
     private PluginManager() {
         mWorkerThread = new MessageHandlerThread("PluginWorker");
         mWorkerThread.start();
         mWorkerHandler = new Handler(mWorkerThread.getLooper());
 
+        init();
+
         mWorkerHandler.post(new Runnable() {
             @Override
             public void run() {
-                init();
-
-                unpackAssetPlugin();
+                // unpackAssetPlugin();
             }
         });
     }
@@ -105,6 +111,10 @@ public class PluginManager {
         return Plugin.getInstance().getAppContext();
     }
 
+    Handler getWorkerHandler() {
+        return mWorkerHandler;
+    }
+
     public boolean isInitialized() {
         synchronized (this) {
             return mIsInitialized;
@@ -114,32 +124,262 @@ public class PluginManager {
     private void init() {
         mPluginInfoPref = getAppContext().getSharedPreferences(PREF_PLUGIN_INFO_PREF,
                 Context.MODE_PRIVATE);
+        mDeveloperInfoPref = getAppContext().getSharedPreferences(PREF_DEVELOPER_INFO_PREF,
+                Context.MODE_PRIVATE);
 
-        PluginInfo pluginInfo = new PluginInfo();
-        pluginInfo.setPluginId("id_1");
-        pluginInfo.setName("Demo");
-        pluginInfo.setIcon("http://test.png");
-        mPluginInfoMap.put(pluginInfo.getPluginId(), pluginInfo);
-        //
-        // PluginDeveloperInfo developerInfo = new PluginDeveloperInfo();
-        // developerInfo.setDeveloperId("id_894148746");
-        // developerInfo.setCert("");
-        // mDeveloperInfoMap.put(developerInfo.getDeveloperId(), developerInfo);
+        scanInstalledPackage();
+        scanDownloadedPackage();
+        readDeveloperInfoPref();
+        readPluginInfoPref();
+
+        PluginInfo pluginInfo = mPluginInfoMap.get("demo");
+        if (pluginInfo == null) {
+            pluginInfo = new PluginInfo();
+            pluginInfo.setPluginId("demo");
+            pluginInfo.setName("Demo");
+            pluginInfo.setIcon("http://test.png");
+            mPluginInfoMap.put(pluginInfo.getPluginId(), pluginInfo);
+        }
+
+        PluginDeveloperInfo developerInfo = mDeveloperInfoMap.get("dev_1");
+        if (developerInfo == null) {
+            developerInfo = new PluginDeveloperInfo();
+            developerInfo.setDeveloperId("dev_1");
+            developerInfo.setCert("608E839C638661F881B9E25ACC301E9A");
+            mDeveloperInfoMap.put(developerInfo.getDeveloperId(), developerInfo);
+        }
 
         synchronized (this) {
             mIsInitialized = true;
         }
     }
 
-    public void downloadPlugin(PluginInfo pluginInfo) {
+    private void readPluginInfoPref() {
+        Map<String, ?> pluginInfoPrefMap = mPluginInfoPref.getAll();
+        if (pluginInfoPrefMap != null && pluginInfoPrefMap.size() > 0) {
+            for (Map.Entry<String, ?> record : pluginInfoPrefMap.entrySet()) {
+                String key = record.getKey();
+                String prefStr = (String) record.getValue();
+                PluginInfo pluginInfo = PluginInfo.buildFromPref(key, prefStr);
+                if (pluginInfo != null) {
+                    boolean infoChanged = false;
+
+                    int installedVersionCode = pluginInfo.getInstalledVersionCode();
+                    if (installedVersionCode > 0) {
+                        Map<Integer, PluginPackageInfo> packageInfoMap = mInstalledPackageInfoMap
+                                .get(pluginInfo.getPluginId());
+                        if (packageInfoMap != null) {
+                            PluginPackageInfo packageInfo = packageInfoMap
+                                    .get(installedVersionCode);
+                            if (packageInfo != null) {
+                                pluginInfo.setInstalledPackageInfo(installedVersionCode,
+                                        packageInfo);
+                            } else {
+                                infoChanged = true;
+                                pluginInfo.setInstalledPackageInfo(0, null);
+                            }
+                        } else {
+                            infoChanged = true;
+                            pluginInfo.setInstalledPackageInfo(0, null);
+                        }
+                    }
+
+                    int downloadedVersionCode = pluginInfo.getDownloadedVersionCode();
+                    if (downloadedVersionCode > 0) {
+                        Map<Integer, PluginPackageInfo> packageInfoMap = mDownloadedPackageInfoMap
+                                .get(pluginInfo.getPluginId());
+                        if (packageInfoMap != null) {
+                            PluginPackageInfo packageInfo = packageInfoMap
+                                    .get(downloadedVersionCode);
+                            if (packageInfo != null) {
+                                pluginInfo.setDownloadedPackageInfo(downloadedVersionCode,
+                                        packageInfo);
+                            } else {
+                                infoChanged = true;
+                                pluginInfo.setDownloadedPackageInfo(0, null);
+                            }
+                        } else {
+                            infoChanged = true;
+                            pluginInfo.setDownloadedPackageInfo(0, null);
+                        }
+                    }
+
+                    if (infoChanged) {
+                        savePluginInfoPref(pluginInfo);
+                    }
+
+                    mPluginInfoMap.put(pluginInfo.getPluginId(), pluginInfo);
+                }
+            }
+        }
+    }
+
+    private void readDeveloperInfoPref() {
+        Map<String, ?> developerInfoPrefMap = mDeveloperInfoPref.getAll();
+        if (developerInfoPrefMap != null && developerInfoPrefMap.size() > 0) {
+            for (Map.Entry<String, ?> record : developerInfoPrefMap.entrySet()) {
+                String key = record.getKey();
+                String prefStr = (String) record.getValue();
+                PluginDeveloperInfo developerInfo = PluginDeveloperInfo.buildFromPref(key, prefStr);
+                if (developerInfo != null) {
+                    mDeveloperInfoMap.put(developerInfo.getDeveloperId(), developerInfo);
+                }
+            }
+        }
+    }
+
+    private void scanInstalledPackage() {
+        File apkInstallDir = new File(getInstalledApkBasePath());
+        if (apkInstallDir.isDirectory()) {
+            String[] pluginPaths = apkInstallDir.list();
+            if (pluginPaths != null) {
+                for (int i = 0, len_1 = pluginPaths.length; i < len_1; i++) {
+
+                    String pluginId = pluginPaths[i];
+
+                    String pluginPath = apkInstallDir + File.separator + pluginId;
+
+                    File pluginIdDir = new File(pluginPath);
+
+                    String[] packagePaths = pluginIdDir.list();
+                    if (packagePaths == null || packagePaths.length < 1) {
+                        continue;
+                    }
+
+                    for (int j = 0, len_2 = packagePaths.length; j < len_2; j++) {
+                        String fileName = packagePaths[j];
+                        String packagePath = pluginPath + File.separator + fileName;
+                        int versionCode;
+                        try {
+                            versionCode = Integer.parseInt(
+                                    fileName.substring(0, fileName.length() - ".apk".length()));
+                        } catch (Exception e) {
+                            versionCode = 0;
+                        }
+
+                        if (versionCode <= 0) {
+                            FileUtil.deleteFile(packagePath);
+                            continue;
+                        }
+
+                        PackageRawInfo rawInfo = getPackageRawInfo(packagePath);
+                        if (rawInfo == null) {
+                            FileUtil.deleteFile(packagePath);
+                            continue;
+                        }
+
+                        // PluginDeveloperInfo developerInfo =
+                        // mDeveloperInfoMap.get(rawInfo.mDeveloperId);
+                        // boolean isSignatureValid = validateSignature(developerInfo, packagePath);
+                        // if (!isSignatureValid) {
+                        // FileUtil.deleteFile(packagePath);
+                        // continue;
+                        // }
+
+                        // boolean isMinApiLevelValid = validateMinApiLevel(rawInfo.mMinApiLevel);
+                        // if (!isMinApiLevelValid) {
+                        // FileUtil.deleteFile(packagePath);
+                        // continue;
+                        // }
+                        //
+                        PluginPackageInfo installedPackageInfo = new PluginPackageInfo();
+
+                        installedPackageInfo.setPluginId(rawInfo.mPluginId);
+                        installedPackageInfo.setVersionCode(rawInfo.mVersionCode);
+                        installedPackageInfo.setDeveloperId(rawInfo.mDeveloperId);
+                        installedPackageInfo.setMinApiLevel(rawInfo.mMinApiLevel);
+                        installedPackageInfo.setPackageName(rawInfo.mPackageName);
+                        installedPackageInfo.setPackagePath(packagePath);
+
+                        addInstalledPluginPackageInfo(installedPackageInfo);
+                    }
+
+                }
+            }
+        }
+    }
+
+    private void scanDownloadedPackage() {
+        File apkDownloadDir = new File(getDownloadedBasePath());
+        if (apkDownloadDir.isDirectory()) {
+            String[] pluginPaths = apkDownloadDir.list();
+            for (int i = 0, len_1 = pluginPaths.length; i < len_1; i++) {
+
+                String pluginIdStr = pluginPaths[i];
+
+                String pluginPath = getDownloadedBasePath() + File.separator + pluginIdStr;
+
+                File pluginIdDir = new File(pluginPath);
+
+                String[] packagePaths = pluginIdDir.list();
+                if (packagePaths == null || packagePaths.length < 1) {
+                    continue;
+                }
+
+                for (int j = 0, len_2 = packagePaths.length; j < len_2; j++) {
+                    String fileName = packagePaths[j];
+
+                    String packagePath = pluginPath + File.separator + fileName;
+
+                    int versionCode;
+                    try {
+                        versionCode = Integer.parseInt(
+                                fileName.substring(0, fileName.length() - ".apk".length()));
+                    } catch (Exception e) {
+                        versionCode = 0;
+                    }
+
+                    if (versionCode <= 0) {
+                        FileUtil.deleteFile(packagePath);
+                        continue;
+                    }
+
+                    PackageRawInfo rawInfo = getPackageRawInfo(packagePath);
+                    if (rawInfo == null) {
+                        FileUtil.deleteFile(packagePath);
+                        continue;
+                    }
+
+                    // PluginDeveloperInfo developerInfo =
+                    // mDeveloperInfoMap.get(rawInfo.mDeveloperId);
+                    // boolean isSignatureValid = validateSignature(developerInfo, packagePath);
+                    // if (!isSignatureValid) {
+                    // FileUtil.deleteFile(packagePath);
+                    // continue;
+                    // }
+
+                    // boolean isMinApiLevelValid = validateMinApiLevel(rawInfo.mMinApiLevel);
+                    // if (!isMinApiLevelValid) {
+                    // FileUtil.deleteFile(packagePath);
+                    // continue;
+                    // }
+
+                    PluginPackageInfo downloadedPackageInfo = new PluginPackageInfo();
+
+                    downloadedPackageInfo.setPluginId(rawInfo.mPluginId);
+                    downloadedPackageInfo.setVersionCode(rawInfo.mVersionCode);
+                    downloadedPackageInfo.setDeveloperId(rawInfo.mDeveloperId);
+                    downloadedPackageInfo.setMinApiLevel(rawInfo.mMinApiLevel);
+                    downloadedPackageInfo.setPackageName(rawInfo.mPackageName);
+                    downloadedPackageInfo.setPackagePath(packagePath);
+
+                    addDownloadedPluginPackageInfo(downloadedPackageInfo);
+                }
+
+            }
+        }
+    }
+
+    void downloadPlugin(PluginInfo pluginInfo) {
 
     }
 
-    public void installPlugin(final PluginInfo pluginInfo, PluginPackageInfo installingPackageInfo,
+    void installPlugin(final PluginInfo pluginInfo, PluginPackageInfo installingPackageInfo,
             AsyncCallback<Void, Error> callback) {
         if (pluginInfo == null || installingPackageInfo == null) {
             if (callback != null) {
-                callback.sendFailureMessage(new Error(-1, " "));
+                callback.sendFailureMessage(
+                        new Error(-1, "PluginInfo or PluginPackageInfo is null"));
             }
             return;
         }
@@ -147,16 +387,39 @@ public class PluginManager {
         if (pluginInfo.isInstalled() && pluginInfo.getInstalledPackageInfo()
                 .getVersionCode() >= installingPackageInfo.getVersionCode()) {
             if (callback != null) {
-                callback.sendFailureMessage(new Error(-1, " "));
+                callback.sendFailureMessage(new Error(-1, "can not downgrade"));
             }
             return;
         }
 
         String installedPluginId = installingPackageInfo.getPluginId();
         int installedVersionCode = installingPackageInfo.getVersionCode();
+
+        Map<Integer, PluginPackageInfo> pluginPackageInfoMap = mInstalledPackageInfoMap
+                .get(installedPluginId);
+        if (pluginPackageInfoMap != null) {
+            PluginPackageInfo existPackageInfo = pluginPackageInfoMap.get(installedVersionCode);
+            if (existPackageInfo != null) {
+                if (callback != null) {
+                    callback.sendFailureMessage(new Error(-1, "same package is installed"));
+                }
+                return;
+            }
+        }
+
         String installedPackagePath = getInstalledPath(installedPluginId, installedVersionCode);
 
-        FileUtil.copyFileToFile(installingPackageInfo.getPackagePath(), installedPackagePath);
+        boolean copySuccess = FileUtil.copyFileToFile(installingPackageInfo.getPackagePath(),
+                installedPackagePath);
+
+        if (!copySuccess) {
+            FileUtil.deleteFile(installedPackagePath);
+
+            if (callback != null) {
+                callback.sendFailureMessage(new Error(-1, "copy to installed dir fail"));
+            }
+            return;
+        }
 
         PackageRawInfo rawInfo = getPackageRawInfo(installedPackagePath);
 
@@ -173,7 +436,12 @@ public class PluginManager {
             installedPackageInfo.setPackageName(rawInfo.mPackageName);
             installedPackageInfo.setPackagePath(installedPackagePath);
 
-            pluginInfo.setInstalledPackageInfo(installedPackageInfo);
+            addInstalledPluginPackageInfo(installedPackageInfo);
+
+            pluginInfo.setInstalledPackageInfo(installedPackageInfo.getVersionCode(),
+                    installedPackageInfo);
+
+            savePluginInfoPref(pluginInfo);
 
             if (callback != null) {
                 callback.sendSuccessMessage(null);
@@ -183,12 +451,12 @@ public class PluginManager {
             FileUtil.deleteFile(installedPackagePath);
 
             if (callback != null) {
-                callback.sendFailureMessage(new Error(-1, " "));
+                callback.sendFailureMessage(new Error(-1, "can not get PackageRawInfo"));
             }
         }
     }
 
-    public void installDebugPlugin(String apkPath, final AsyncCallback<Void, Error> callback) {
+    void installDebugPlugin(String apkPath, final AsyncCallback<Void, Error> callback) {
         if (!PluginSetting.IS_DEBUG) {
             if (callback != null) {
                 callback.sendFailureMessage(new Error(-1, ""));
@@ -223,9 +491,32 @@ public class PluginManager {
             return;
         }
 
+        PluginInfo pluginInfo = getPluginInfo(rawInfo.mPluginId);
+
+        if (pluginInfo == null) {
+            if (callback != null) {
+                callback.sendFailureMessage(new Error(-1, "can not find PluginInfo"));
+            }
+            return;
+        }
+
+        if (pluginInfo.isInstalled()
+                && pluginInfo.getInstalledPackageInfo().getVersionCode() > rawInfo.mVersionCode) {
+            if (callback != null) {
+                callback.sendFailureMessage(new Error(-1, "can not downgrade"));
+            }
+            return;
+        }
+
+        removeInstalledPackage(rawInfo.mPluginId, rawInfo.mVersionCode);
+        PluginRuntimeManager.getInstance().clearPluginContext(rawInfo.mPluginId,
+                rawInfo.mVersionCode);
+        // 清理PluginContext
+        removeDownloadedPackage(rawInfo.mPluginId, rawInfo.mVersionCode);
+
         String downloadedPath = getDownloadedPath(rawInfo.mPluginId, rawInfo.mVersionCode);
 
-        boolean isCopySuccess = FileUtil.copyFileToFile(apkPath, downloadedPath);
+        boolean isCopySuccess = copyFileToFile(apkPath, downloadedPath);
 
         FileUtil.deleteFile(apkPath);
 
@@ -233,47 +524,38 @@ public class PluginManager {
             rawInfo = getPackageRawInfo(downloadedPath);
             if (rawInfo != null) {
 
-                PluginInfo pluginInfo = getPluginInfo(rawInfo.mPluginId);
+                PluginPackageInfo downloadedPackageInfo = new PluginPackageInfo();
+                downloadedPackageInfo.setPluginId(rawInfo.mPluginId);
+                downloadedPackageInfo.setVersionCode(rawInfo.mVersionCode);
+                downloadedPackageInfo.setDeveloperId(rawInfo.mDeveloperId);
+                downloadedPackageInfo.setMinApiLevel(rawInfo.mMinApiLevel);
+                downloadedPackageInfo.setPackageName(rawInfo.mPackageName);
+                downloadedPackageInfo.setPackagePath(downloadedPath);
 
-                if (pluginInfo != null) {
-                    PluginPackageInfo downloadedPackageInfo = new PluginPackageInfo();
-                    downloadedPackageInfo.setPluginId(rawInfo.mPluginId);
-                    downloadedPackageInfo.setVersionCode(rawInfo.mVersionCode);
-                    downloadedPackageInfo.setDeveloperId(rawInfo.mDeveloperId);
-                    downloadedPackageInfo.setMinApiLevel(rawInfo.mMinApiLevel);
-                    downloadedPackageInfo.setPackageName(rawInfo.mPackageName);
-                    downloadedPackageInfo.setPackagePath(downloadedPath);
+                // 清理
 
-                    // 清理
+                pluginInfo.setInstalledPackageInfo(0, null);
+                pluginInfo.setDownloadedPackageInfo(downloadedPackageInfo.getVersionCode(),
+                        downloadedPackageInfo);
 
-                    pluginInfo.setInstalledPackageInfo(null);
-                    pluginInfo.setDownloadedPackageInfo(downloadedPackageInfo);
-
-                    installPlugin(pluginInfo, downloadedPackageInfo,
-                            new AsyncCallback<Void, Error>() {
-                                @Override
-                                public void onSuccess(Void result) {
-                                    if (callback != null) {
-                                        callback.sendSuccessMessage(null);
-                                    }
+                installPlugin(pluginInfo, downloadedPackageInfo,
+                        new AsyncCallback<Void, Error>() {
+                            @Override
+                            public void onSuccess(Void result) {
+                                if (callback != null) {
+                                    callback.sendSuccessMessage(null);
                                 }
+                            }
 
-                                @Override
-                                public void onFailure(Error error) {
-                                    if (callback != null) {
-                                        callback.sendFailureMessage(
-                                                new Error(-1, "PluginInfo null"));
-                                    }
+                            @Override
+                            public void onFailure(Error error) {
+                                if (callback != null) {
+                                    callback.sendFailureMessage(
+                                            new Error(-1, "PluginInfo null"));
                                 }
-                            });
+                            }
+                        });
 
-                } else {
-                    FileUtil.deleteFile(downloadedPath);
-
-                    if (callback != null) {
-                        callback.sendFailureMessage(new Error(-1, "PluginInfo null"));
-                    }
-                }
             } else {
                 FileUtil.deleteFile(downloadedPath);
 
@@ -286,6 +568,108 @@ public class PluginManager {
                 callback.sendFailureMessage(new Error(-1, "copy wrong"));
             }
         }
+    }
+
+    private void removeInstalledPackage(String pluginId, int versionCode) {
+        PluginInfo pluginInfo = mPluginInfoMap.get(pluginId);
+        if (pluginInfo != null) {
+            pluginInfo.setInstalledPackageInfo(0, null);
+            savePluginInfoPref(pluginInfo);
+        }
+
+        Map<Integer, PluginPackageInfo> packageInfoMap = mInstalledPackageInfoMap.get(pluginId);
+        if (packageInfoMap == null) {
+            return;
+        }
+
+        PluginPackageInfo packageInfo = packageInfoMap.get(versionCode);
+
+        if (packageInfo == null) {
+            return;
+        }
+
+        // dex
+        String dexOptimizedDir = PluginSetting.getDexOptimizedDir(getAppContext(), pluginId);
+        String dexOptimizedPath = dexOptimizedDir + File.separator + versionCode + ".dex";
+        FileUtil.deleteFile(dexOptimizedPath);
+
+        // so
+        String soDir = PluginSetting.getSoDir(getAppContext(), pluginId, versionCode);
+        FileUtil.deleteDirectory(soDir);
+
+        // mpk
+        String apkPath = getInstalledPath(pluginId, versionCode);
+        FileUtil.deleteFile(apkPath);
+
+        removeInstalledPluginPackageInfo(pluginId, versionCode);
+    }
+
+    private void removeDownloadedPackage(String pluginId, int versionCode) {
+        PluginInfo pluginInfo = mPluginInfoMap.get(pluginId);
+        if (pluginInfo != null) {
+            pluginInfo.setDownloadedPackageInfo(0, null);
+            savePluginInfoPref(pluginInfo);
+        }
+
+        Map<Integer, PluginPackageInfo> packageInfoMap = mDownloadedPackageInfoMap.get(pluginId);
+        if (packageInfoMap == null) {
+            return;
+        }
+
+        PluginPackageInfo packageInfo = packageInfoMap.get(versionCode);
+
+        if (packageInfo == null) {
+            return;
+        }
+
+        FileUtil.deleteFile(packageInfo.getPackagePath());
+
+        removeDownloadedPluginPackageInfo(pluginId, versionCode);
+    }
+
+    private void addInstalledPluginPackageInfo(PluginPackageInfo packageInfo) {
+        Map<Integer, PluginPackageInfo> pkgInfoMap = mInstalledPackageInfoMap
+                .get(packageInfo.getPluginId());
+        if (pkgInfoMap == null) {
+            pkgInfoMap = new HashMap<>();
+            mInstalledPackageInfoMap.put(packageInfo.getPluginId(), pkgInfoMap);
+        }
+        pkgInfoMap.put(packageInfo.getVersionCode(), packageInfo);
+    }
+
+    private void removeInstalledPluginPackageInfo(String pluginId, int versionCode) {
+        Map<Integer, PluginPackageInfo> packageInfoMap = mInstalledPackageInfoMap.get(pluginId);
+        if (packageInfoMap == null) {
+            return;
+        }
+        packageInfoMap.remove(versionCode);
+    }
+
+    private void addDownloadedPluginPackageInfo(PluginPackageInfo packageInfo) {
+        Map<Integer, PluginPackageInfo> pkgInfoMap = mDownloadedPackageInfoMap
+                .get(packageInfo.getPluginId());
+        if (pkgInfoMap == null) {
+            pkgInfoMap = new HashMap<>();
+            mDownloadedPackageInfoMap.put(packageInfo.getPluginId(), pkgInfoMap);
+        }
+        pkgInfoMap.put(packageInfo.getVersionCode(), packageInfo);
+    }
+
+    private void removeDownloadedPluginPackageInfo(String pluginId, int versionCode) {
+        Map<Integer, PluginPackageInfo> packageInfoMap = mDownloadedPackageInfoMap.get(pluginId);
+        if (packageInfoMap == null) {
+            return;
+        }
+        packageInfoMap.remove(versionCode);
+    }
+
+    private synchronized void savePluginInfoPref(PluginInfo pluginInfo) {
+        PreferenceUtil.setSettingString(mPluginInfoPref, pluginInfo.getPluginId(),
+                pluginInfo.toPrefJsonStr());
+    }
+
+    private synchronized void removePluginInfoPref(String pluginId) {
+        PreferenceUtil.removePreference(mPluginInfoPref, pluginId);
     }
 
     private PackageRawInfo getPackageRawInfo(String packagePath) {
@@ -384,7 +768,7 @@ public class PluginManager {
                     String downloadedPath = getDownloadedPath(tmpRawInfo.mPluginId,
                             tmpRawInfo.mVersionCode);
 
-                    boolean isCopySuccess = FileUtil.copyFileToFile(tmpPath, downloadedPath);
+                    boolean isCopySuccess = copyFileToFile(tmpPath, downloadedPath);
 
                     FileUtil.deleteFile(tmpPath);
 
@@ -413,7 +797,9 @@ public class PluginManager {
                                     downloadedPackageInfo.setMinApiLevel(rawInfo.mMinApiLevel);
                                     downloadedPackageInfo.setPackageName(rawInfo.mPackageName);
                                     downloadedPackageInfo.setPackagePath(downloadedPath);
-                                    pluginInfo.setDownloadedPackageInfo(downloadedPackageInfo);
+                                    pluginInfo.setDownloadedPackageInfo(
+                                            downloadedPackageInfo.getVersionCode(),
+                                            downloadedPackageInfo);
                                 } else {
                                     FileUtil.deleteFile(downloadedPath);
                                 }
@@ -436,21 +822,29 @@ public class PluginManager {
         }
     }
 
+    private String getDownloadedBasePath() {
+        return getPluginBaseDir() + File.separator + DOWNLOADED_DIR;
+    }
+
     private String getDownloadedPath(String pluginId, int version) {
-        return getPluginBaseDir() + File.separator + DOWNLOADED_DIR + File.separator + pluginId
-                + File.separator + version + ".apk";
+        return getDownloadedBasePath() + File.separator + pluginId + File.separator + version
+                + ".apk";
+    }
+
+    String getInstalledBasePath() {
+        return getPluginBaseDir() + File.separator + INSTALLED_DIR;
+    }
+
+    private String getInstalledApkBasePath() {
+        return getInstalledBasePath() + File.separator + "apk";
     }
 
     private String getInstalledPath(String pluginId, int version) {
-        return getPluginBaseDir() + File.separator + INSTALLED_DIR + File.separator + pluginId
-                + File.separator + version + ".apk";
+        return getInstalledApkBasePath() + File.separator + pluginId + File.separator + version
+                + ".apk";
     }
 
     private boolean validateSignature(PluginDeveloperInfo developerInfo, String path) {
-        if (!ENABLE_SIGNATURE_VALIDATE) {
-            return true;
-        }
-
         if (developerInfo == null || TextUtils.isEmpty(developerInfo.getCert())
                 || TextUtils.isEmpty(path)) {
             return false;
