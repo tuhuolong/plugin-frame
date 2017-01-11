@@ -16,6 +16,7 @@ import android.text.TextUtils;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import app.lib.plugin.frame.entity.PluginPackageInfo;
@@ -43,16 +44,10 @@ public class PluginRuntimeManager {
 
     private Context mAppContext;
 
+    private Map<PluginProcess, IBridgeServiceApi> mBridgeApiProxyMap = new ConcurrentHashMap<>();
     private IBridgeServiceApi mMainBridgeApiProxy;
     private IBridgeServiceApi mPlugin1BridgeApiProxy;
     private IBridgeServiceApi mPlugin2BridgeApiProxy;
-
-    // model对应的hash
-    // private final ConcurrentHashMap<String, XmPluginPackage> mUrlPackages = new
-    // ConcurrentHashMap<String, XmPluginPackage>();
-    // private final ConcurrentHashMap<String, XmPluginPackage> mPackagePathPackages = new
-    // ConcurrentHashMap<String, XmPluginPackage>();
-    // private Context mAppContext;
 
     private PluginRuntimeManager() {
         mAppContext = Plugin.getInstance().getAppContext();
@@ -169,26 +164,12 @@ public class PluginRuntimeManager {
         }
     }
 
-    public void clearPluginContext(String pluginId, int versionCode) {
-
-    }
-
     public IBridgeServiceApi getBridgeApiProxy(PluginProcess process) {
         if (process == null) {
             return null;
         }
 
-        IBridgeServiceApi apiProxy = null;
-
-        synchronized (sLock) {
-            if (process == PluginProcess.MAIN) {
-                apiProxy = mMainBridgeApiProxy;
-            } else if (process == PluginProcess.PLUGIN1) {
-                apiProxy = mPlugin1BridgeApiProxy;
-            } else if (process == PluginProcess.PLUGIN2) {
-                apiProxy = mPlugin2BridgeApiProxy;
-            }
-        }
+        IBridgeServiceApi apiProxy = mBridgeApiProxyMap.get(process);
 
         return apiProxy;
     }
@@ -198,14 +179,10 @@ public class PluginRuntimeManager {
             return;
         }
 
-        synchronized (sLock) {
-            if (process == PluginProcess.MAIN) {
-                mMainBridgeApiProxy = apiProxy;
-            } else if (process == PluginProcess.PLUGIN1) {
-                mPlugin1BridgeApiProxy = apiProxy;
-            } else if (process == PluginProcess.PLUGIN2) {
-                mPlugin2BridgeApiProxy = apiProxy;
-            }
+        if (apiProxy == null) {
+            mBridgeApiProxyMap.remove(process);
+        } else {
+            mBridgeApiProxyMap.put(process, apiProxy);
         }
     }
 
@@ -233,7 +210,7 @@ public class PluginRuntimeManager {
         }
     }
 
-    public PluginContext loadApk(PluginPackageInfo packageInfo) {
+    public PluginContext loadApkRuntime(PluginPackageInfo packageInfo) {
         PluginContext pluginContext = mPackageContextMap
                 .get(getPluginContextId(packageInfo.getPluginId(), packageInfo.getVersionCode()));
         if (pluginContext != null) {
@@ -284,8 +261,21 @@ public class PluginRuntimeManager {
         return pluginContext;
     }
 
-    public PluginContext getPluginContext(String pluginId, int versionCode) {
+    public PluginContext getPluginContextRuntime(String pluginId, int versionCode) {
         return mPackageContextMap.get(getPluginContextId(pluginId, versionCode));
+    }
+
+    public void removePluginContextRuntime(String pluginId, int versionCode) {
+        mPackageContextMap.remove(getPluginContextId(pluginId, versionCode));
+    }
+
+    public void removePluginContextAll(String pluginId, int versionCode) {
+        for (IBridgeServiceApi bridgeApiProxy : mBridgeApiProxyMap.values()) {
+            try {
+                bridgeApiProxy.removePluginContext(pluginId, versionCode, null);
+            } catch (RemoteException e) {
+            }
+        }
     }
 
     private DexClassLoader createDexClassLoader(String pluginId, int versionCode, String dexPath) {

@@ -10,10 +10,7 @@ import java.io.File;
  */
 
 public class PluginSetting {
-    public static final boolean IS_DEBUG = true;
-
     public static final int API_LEVEL = 1;
-
     // 调试插件Id起始值
     public static final long PLUGIN_ID_DEBUG_START = 1;
     // 调试插件Id结束值
@@ -22,6 +19,8 @@ public class PluginSetting {
     public static final long PACKAGE_ID_DEBUG_START = 1;
     // 调试包Id结束值
     public static final long PACKAGE_ID_DEBUG_END = 100;
+
+    public static boolean IS_DEBUG = false;
 
     public static boolean isValidatePluginId(long pluginId) {
         if (pluginId > 0) {

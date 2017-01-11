@@ -70,7 +70,7 @@ public class Plugin {
         return sInstance;
     }
 
-    public void start(Application application) {
+    public void start(Application application, boolean enableDebug) {
         new PluginHostApiImpl();
 
         mApplication = application;
@@ -79,6 +79,8 @@ public class Plugin {
         PluginManager.getInstance();
 
         bindCoreService();
+
+        PluginSetting.IS_DEBUG = enableDebug;
     }
 
     public Application getApplication() {

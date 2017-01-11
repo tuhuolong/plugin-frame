@@ -77,7 +77,7 @@ public class PluginManager {
         mWorkerHandler.post(new Runnable() {
             @Override
             public void run() {
-                // unpackAssetPlugin();
+                unpackAssetPlugin();
             }
         });
     }
@@ -139,6 +139,8 @@ public class PluginManager {
             pluginInfo.setName("Demo");
             pluginInfo.setIcon("http://test.png");
             mPluginInfoMap.put(pluginInfo.getPluginId(), pluginInfo);
+
+            savePluginInfoPref(pluginInfo);
         }
 
         PluginDeveloperInfo developerInfo = mDeveloperInfoMap.get("dev_1");
@@ -147,6 +149,8 @@ public class PluginManager {
             developerInfo.setDeveloperId("dev_1");
             developerInfo.setCert("608E839C638661F881B9E25ACC301E9A");
             mDeveloperInfoMap.put(developerInfo.getDeveloperId(), developerInfo);
+
+            saveDeveloperInfoPref(developerInfo);
         }
 
         synchronized (this) {
@@ -509,10 +513,10 @@ public class PluginManager {
         }
 
         removeInstalledPackage(rawInfo.mPluginId, rawInfo.mVersionCode);
-        PluginRuntimeManager.getInstance().clearPluginContext(rawInfo.mPluginId,
-                rawInfo.mVersionCode);
-        // 清理PluginContext
         removeDownloadedPackage(rawInfo.mPluginId, rawInfo.mVersionCode);
+
+        PluginRuntimeManager.getInstance().removePluginContextAll(rawInfo.mPluginId,
+                rawInfo.mVersionCode);
 
         String downloadedPath = getDownloadedPath(rawInfo.mPluginId, rawInfo.mVersionCode);
 
@@ -532,11 +536,12 @@ public class PluginManager {
                 downloadedPackageInfo.setPackageName(rawInfo.mPackageName);
                 downloadedPackageInfo.setPackagePath(downloadedPath);
 
-                // 清理
+                addDownloadedPluginPackageInfo(downloadedPackageInfo);
 
-                pluginInfo.setInstalledPackageInfo(0, null);
                 pluginInfo.setDownloadedPackageInfo(downloadedPackageInfo.getVersionCode(),
                         downloadedPackageInfo);
+
+                savePluginInfoPref(pluginInfo);
 
                 installPlugin(pluginInfo, downloadedPackageInfo,
                         new AsyncCallback<Void, Error>() {
@@ -672,6 +677,15 @@ public class PluginManager {
         PreferenceUtil.removePreference(mPluginInfoPref, pluginId);
     }
 
+    private synchronized void saveDeveloperInfoPref(PluginDeveloperInfo developerInfo) {
+        PreferenceUtil.setSettingString(mDeveloperInfoPref, developerInfo.getDeveloperId(),
+                developerInfo.toPrefJsonStr());
+    }
+
+    private synchronized void removeDeveloperInfoPref(String developerId) {
+        PreferenceUtil.removePreference(mDeveloperInfoPref, developerId);
+    }
+
     private PackageRawInfo getPackageRawInfo(String packagePath) {
         PackageRawInfo rawInfo = null;
 
@@ -765,55 +779,54 @@ public class PluginManager {
                         continue;
                     }
 
-                    String downloadedPath = getDownloadedPath(tmpRawInfo.mPluginId,
-                            tmpRawInfo.mVersionCode);
-
-                    boolean isCopySuccess = copyFileToFile(tmpPath, downloadedPath);
-
-                    FileUtil.deleteFile(tmpPath);
-
-                    if (isCopySuccess) {
-                        PackageRawInfo rawInfo = getPackageRawInfo(downloadedPath);
-                        if (rawInfo != null) {
-
-                            PluginInfo pluginInfo = getPluginInfo(rawInfo.mPluginId);
-
-                            if (pluginInfo != null) {
-                                boolean installedLower = pluginInfo.isInstalled()
-                                        && pluginInfo.getInstalledPackageInfo()
-                                                .getVersionCode() < rawInfo.mVersionCode;
-                                boolean downloadedLower = !pluginInfo.isInstalled()
-                                        && pluginInfo.isDownloaded()
-                                        && pluginInfo.getDownloadedPackageInfo()
-                                                .getVersionCode() < rawInfo.mVersionCode;
-                                boolean none = !pluginInfo.isInstalled()
-                                        && !pluginInfo.isDownloaded();
-
-                                if (installedLower || downloadedLower || none) {
-                                    PluginPackageInfo downloadedPackageInfo = new PluginPackageInfo();
-                                    downloadedPackageInfo.setPluginId(rawInfo.mPluginId);
-                                    downloadedPackageInfo.setVersionCode(rawInfo.mVersionCode);
-                                    downloadedPackageInfo.setDeveloperId(rawInfo.mDeveloperId);
-                                    downloadedPackageInfo.setMinApiLevel(rawInfo.mMinApiLevel);
-                                    downloadedPackageInfo.setPackageName(rawInfo.mPackageName);
-                                    downloadedPackageInfo.setPackagePath(downloadedPath);
-                                    pluginInfo.setDownloadedPackageInfo(
-                                            downloadedPackageInfo.getVersionCode(),
-                                            downloadedPackageInfo);
-                                } else {
-                                    FileUtil.deleteFile(downloadedPath);
-                                }
-
-                            } else {
-                                FileUtil.deleteFile(downloadedPath);
-                            }
-                        } else {
-                            FileUtil.deleteFile(downloadedPath);
-                        }
-                    } else {
-                        FileUtil.deleteFile(downloadedPath);
+                    PluginInfo pluginInfo = mPluginInfoMap.get(tmpRawInfo.mPluginId);
+                    if (pluginInfo == null) {
+                        FileUtil.deleteFile(tmpPath);
+                        continue;
                     }
 
+                    boolean installedLower = pluginInfo.isInstalled()
+                            && pluginInfo.getInstalledVersionCode() < tmpRawInfo.mVersionCode;
+                    boolean downloadedLower = !pluginInfo.isInstalled() && pluginInfo.isDownloaded()
+                            && pluginInfo.getDownloadedVersionCode() < tmpRawInfo.mVersionCode;
+                    boolean none = !pluginInfo.isInstalled() && !pluginInfo.isDownloaded();
+
+                    if (installedLower || downloadedLower || none) {
+                        String downloadedPath = getDownloadedPath(tmpRawInfo.mPluginId,
+                                tmpRawInfo.mVersionCode);
+
+                        boolean isCopySuccess = copyFileToFile(tmpPath, downloadedPath);
+
+                        FileUtil.deleteFile(tmpPath);
+
+                        if (!isCopySuccess) {
+                            FileUtil.deleteFile(tmpPath);
+                            continue;
+                        }
+
+                        PackageRawInfo rawInfo = getPackageRawInfo(downloadedPath);
+                        if (rawInfo == null) {
+                            FileUtil.deleteFile(tmpPath);
+                            continue;
+                        }
+
+                        PluginPackageInfo downloadedPackageInfo = new PluginPackageInfo();
+                        downloadedPackageInfo.setPluginId(rawInfo.mPluginId);
+                        downloadedPackageInfo.setVersionCode(rawInfo.mVersionCode);
+                        downloadedPackageInfo.setDeveloperId(rawInfo.mDeveloperId);
+                        downloadedPackageInfo.setMinApiLevel(rawInfo.mMinApiLevel);
+                        downloadedPackageInfo.setPackageName(rawInfo.mPackageName);
+                        downloadedPackageInfo.setPackagePath(downloadedPath);
+
+                        addDownloadedPluginPackageInfo(downloadedPackageInfo);
+
+                        pluginInfo.setDownloadedPackageInfo(downloadedPackageInfo.getVersionCode(),
+                                downloadedPackageInfo);
+
+                        savePluginInfoPref(pluginInfo);
+                    } else {
+                        FileUtil.deleteFile(tmpPath);
+                    }
                 } else {
                     FileUtil.deleteFile(tmpPath);
                 }
@@ -879,15 +892,5 @@ public class PluginManager {
         }
         return mPluginInfoMap.get(pluginId);
     }
-
-    // private synchronized void addDownloadedPackageInfo(PluginPackageInfo packageInfo) {
-    // Map<Integer, PluginPackageInfo> pluginPackageInfoMap = mDownloadedPackageInfoMap
-    // .get(packageInfo.getPluginId());
-    // if (pluginPackageInfoMap == null) {
-    // pluginPackageInfoMap = new HashMap<>();
-    // mDownloadedPackageInfoMap.put(packageInfo.getPluginId(), pluginPackageInfoMap);
-    // }
-    // pluginPackageInfoMap.put(packageInfo.getVersionCode(), packageInfo);
-    // }
 
 }

@@ -92,7 +92,7 @@ public class PluginHostActivityBase extends FragmentActivity {
         int versionCode = intent.getIntExtra(KEY_VERSION_CODE, 0);
         mActivityClass = intent.getStringExtra(KEY_ACTIVITY_CLASS);
 
-        mPluginContext = PluginRuntimeManager.getInstance().getPluginContext(pluginId, versionCode);
+        mPluginContext = PluginRuntimeManager.getInstance().getPluginContextRuntime(pluginId, versionCode);
 
         if (mPluginContext == null) {
             finish();

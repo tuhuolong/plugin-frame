@@ -49,7 +49,7 @@ public class PluginBridgeServiceBase extends Service {
                     }
 
                     PluginContext pluginContext = PluginRuntimeManager.getInstance()
-                            .loadApk(pluginInfo.getInstalledPackageInfo());
+                            .loadApkRuntime(pluginInfo.getInstalledPackageInfo());
 
                     if (pluginContext != null && pluginContext.getMessageReceiver() != null) {
                         try {
@@ -69,9 +69,9 @@ public class PluginBridgeServiceBase extends Service {
         }
 
         @Override
-        public void clearPluginContext(String pluginId, int versionCode,
+        public void removePluginContext(String pluginId, int versionCode,
                 IBridgeCallback bridgeCallback) throws RemoteException {
-
+            PluginRuntimeManager.getInstance().removePluginContextRuntime(pluginId, versionCode);
         }
 
         @Override
