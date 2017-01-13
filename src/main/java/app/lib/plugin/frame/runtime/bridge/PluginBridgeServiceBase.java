@@ -24,6 +24,8 @@ import app.lib.plugin.sdk.PluginContext;
 
 public class PluginBridgeServiceBase extends Service {
 
+    public static final String KEY_SEND_MESSAGE_RESULT_HANDLED = "handled";
+
     HandlerThread mWorkerThread;
     Handler mWorkerHandler;
 
@@ -34,17 +36,29 @@ public class PluginBridgeServiceBase extends Service {
     IBridgeServiceApi.Stub mStub = new IBridgeServiceApi.Stub() {
         @Override
         public void sendMessage(final String pluginId, final int msgType, final Bundle msgArg,
-                IBridgeCallback bridgeCallback) throws RemoteException {
+                final IBridgeSendMessageCallback callback) throws RemoteException {
             mWorkerHandler.post(new Runnable() {
                 @Override
                 public void run() {
                     PluginInfo pluginInfo = PluginCoreApi.getInstance().getPluginInfo(pluginId);
 
                     if (pluginInfo == null) {
+                        if (callback != null) {
+                            try {
+                                callback.onFailure(new BridgeError(-1, "not found PluginInfo"));
+                            } catch (RemoteException e) {
+                            }
+                        }
                         return;
                     }
 
                     if (!pluginInfo.isInstalled()) {
+                        if (callback != null) {
+                            try {
+                                callback.onFailure(new BridgeError(-1, "not installed"));
+                            } catch (RemoteException e) {
+                            }
+                        }
                         return;
                     }
 
@@ -60,8 +74,29 @@ public class PluginBridgeServiceBase extends Service {
                             boolean handled = pluginContext.getMessageReceiver().handleMessage(
                                     mAppContext, pluginContext, msgType, msgArg);
 
-                        } catch (Exception e) {
+                            Bundle result = new Bundle();
+                            result.putBoolean(KEY_SEND_MESSAGE_RESULT_HANDLED, handled);
 
+                            if (callback != null) {
+                                callback.onSuccess(result);
+                            }
+
+                        } catch (Exception e) {
+                            if (callback != null) {
+                                try {
+                                    callback.onFailure(
+                                            new BridgeError(-1, "Plugin handle Exception"));
+                                } catch (RemoteException re) {
+                                }
+                            }
+                        }
+                    } else {
+                        if (callback != null) {
+                            try {
+                                callback.onFailure(new BridgeError(-1,
+                                        "not found PluginContext or MessageReceiver"));
+                            } catch (RemoteException e) {
+                            }
                         }
                     }
                 }
@@ -69,8 +104,8 @@ public class PluginBridgeServiceBase extends Service {
         }
 
         @Override
-        public void removePluginContext(String pluginId, int versionCode,
-                IBridgeCallback bridgeCallback) throws RemoteException {
+        public void removePluginContext(String pluginId, int versionCode, IBridgeCallback callback)
+                throws RemoteException {
             PluginRuntimeManager.getInstance().removePluginContextRuntime(pluginId, versionCode);
         }
 

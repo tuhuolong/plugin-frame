@@ -19,10 +19,13 @@ import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import app.lib.asynccallback.Error;
 import app.lib.plugin.frame.entity.PluginPackageInfo;
 import app.lib.plugin.frame.runtime.activity.PluginHostActivityMain;
 import app.lib.plugin.frame.runtime.activity.PluginHostActivityPlugin1;
 import app.lib.plugin.frame.runtime.activity.PluginHostActivityPlugin2;
+import app.lib.plugin.frame.runtime.bridge.BridgeError;
+import app.lib.plugin.frame.runtime.bridge.IBridgeSendMessageCallback;
 import app.lib.plugin.frame.runtime.bridge.IBridgeServiceApi;
 import app.lib.plugin.frame.runtime.bridge.PluginBridgeServiceMain;
 import app.lib.plugin.frame.runtime.bridge.PluginBridgeServicePlugin1;
@@ -31,6 +34,8 @@ import app.lib.plugin.frame.util.FileUtil;
 import app.lib.plugin.sdk.IMessageReceiver;
 import app.lib.plugin.sdk.PluginContext;
 import dalvik.system.DexClassLoader;
+
+import static app.lib.plugin.frame.runtime.bridge.PluginBridgeServiceBase.KEY_SEND_MESSAGE_RESULT_HANDLED;
 
 /**
  * Created by chenhao on 16/12/24.
@@ -122,7 +127,7 @@ public class PluginRuntimeManager {
     }
 
     public void sendMessage(final Context context, final String pluginId, final int msgType,
-            final Bundle msgArg) {
+            final Bundle msgArg, final PluginApi.SendMessageCallback callback) {
 
         final PluginProcess process = chooseProcess(pluginId);
 
@@ -131,6 +136,9 @@ public class PluginRuntimeManager {
 
             Class clazz = getBridgeServiceClass(process);
             if (clazz == null) {
+                if (callback != null) {
+                    callback.sendSendFailureMessage(new Error(-1, "not found BridgeServiceClass"));
+                }
                 return;
             }
             Intent intent = new Intent(context, clazz);
@@ -141,7 +149,7 @@ public class PluginRuntimeManager {
 
                     setBridgeApiProxy(process, apiProxy);
 
-                    realSendMessage(apiProxy, pluginId, msgType, msgArg);
+                    doSendMessage(apiProxy, pluginId, msgType, msgArg, callback);
                 }
 
                 @Override
@@ -153,14 +161,38 @@ public class PluginRuntimeManager {
             }, Context.BIND_AUTO_CREATE);
 
         } else {
-            realSendMessage(apiProxy, pluginId, msgType, msgArg);
+            doSendMessage(apiProxy, pluginId, msgType, msgArg, callback);
         }
     }
 
-    void realSendMessage(IBridgeServiceApi apiProxy, String pluginId, int msgType, Bundle msgArg) {
+    void doSendMessage(IBridgeServiceApi apiProxy, String pluginId, int msgType, Bundle msgArg,
+            final PluginApi.SendMessageCallback callback) {
         try {
-            apiProxy.sendMessage(pluginId, msgType, msgArg, null);
+            apiProxy.sendMessage(pluginId, msgType, msgArg, new IBridgeSendMessageCallback.Stub() {
+                @Override
+                public void onSuccess(Bundle result) throws RemoteException {
+                    boolean handled = false;
+                    if (result != null) {
+                        handled = result.getBoolean(KEY_SEND_MESSAGE_RESULT_HANDLED);
+                    }
+                    if (callback != null) {
+                        callback.sendSendSuccessMessage(handled);
+                    }
+                }
+
+                @Override
+                public void onFailure(BridgeError error) throws RemoteException {
+                    if (callback != null) {
+                        callback.sendSendFailureMessage(
+                                new Error(error.getCode(), error.getDetail()));
+                    }
+                }
+
+            });
         } catch (RemoteException e) {
+            if (callback != null) {
+                callback.sendSendFailureMessage(new Error(-1, "RemoteException"));
+            }
         }
     }
 
