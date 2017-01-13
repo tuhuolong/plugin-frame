@@ -36,6 +36,15 @@ public class PluginApi {
         return sInstance;
     }
 
+    public void downloadPlugin(final PluginInfo pluginInfo, final DownloadPluginCallback callback) {
+        PluginManager.getInstance().mWorkerHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                PluginManager.getInstance().downloadPlugin(pluginInfo, callback);
+            }
+        });
+    }
+
     public void installPlugin(final PluginInfo pluginInfo,
             final PluginPackageInfo installingPackageInfo,
             final AsyncCallback<Void, Error> callback) {
@@ -61,7 +70,7 @@ public class PluginApi {
     public void sendMessage(final Context context, final String pluginId, final int msgType,
             final Bundle msgArg, final SendMessageCallback callback) {
 
-        PluginInfo pluginInfo = PluginManager.getInstance().getPluginInfo(pluginId);
+        final PluginInfo pluginInfo = PluginManager.getInstance().getPluginInfo(pluginId);
 
         if (pluginInfo == null) {
             if (callback != null) {
@@ -71,7 +80,47 @@ public class PluginApi {
         }
 
         if (!pluginInfo.isDownloaded() && !pluginInfo.isInstalled()) {
+            downloadPlugin(pluginInfo, new DownloadPluginCallback() {
+                @Override
+                public void onStart() {
+                    if (callback != null) {
+                        callback.sendDownloadStartMessage();
+                    }
+                }
 
+                @Override
+                public void onProgress(float percent) {
+                    if (callback != null) {
+                        callback.sendDownloadProgressMessage(percent);
+                    }
+                }
+
+                @Override
+                public void onSuccess() {
+                    installPlugin(pluginInfo, pluginInfo.getDownloadedPackageInfo(),
+                            new AsyncCallback<Void, Error>() {
+                                @Override
+                                public void onSuccess(Void result) {
+                                    PluginRuntimeManager.getInstance().sendMessage(context,
+                                            pluginId,
+                                            msgType, msgArg, callback);
+                                }
+
+                                @Override
+                                public void onFailure(Error error) {
+                                    callback.sendSendFailureMessage(
+                                            new Error(-1, "install failure"));
+                                }
+                            });
+                }
+
+                @Override
+                public void onFailure(Error error) {
+                    if (callback != null) {
+                        callback.sendSendFailureMessage(error);
+                    }
+                }
+            });
         } else if (pluginInfo.isDownloaded() && !pluginInfo.isInstalled()) {
             installPlugin(pluginInfo, pluginInfo.getDownloadedPackageInfo(),
                     new AsyncCallback<Void, Error>() {
@@ -83,7 +132,9 @@ public class PluginApi {
 
                         @Override
                         public void onFailure(Error error) {
-
+                            if (callback != null) {
+                                callback.sendSendFailureMessage(new Error(-1, "install failure"));
+                            }
                         }
                     });
         } else if (!pluginInfo.isDownloaded() && pluginInfo.isInstalled()) {
@@ -198,6 +249,83 @@ public class PluginApi {
                         if (msg.obj instanceof Error) {
                             Error error = (Error) msg.obj;
                             mCallback.onSendFailure(error);
+                        }
+                        break;
+                }
+            }
+        }
+    }
+
+    public abstract static class DownloadPluginCallback {
+        private static final int MSG_START = 1;
+        private static final int MSG_PROGRESS = 2;
+        private static final int MSG_SUCCESS = 3;
+        private static final int MSG_FAILURE = 4;
+
+        private Handler mDispatcher;
+
+        public DownloadPluginCallback() {
+            Looper looper = Looper.myLooper();
+
+            if (looper == null) {
+                throw new RuntimeException("async callback must have looper");
+            } else {
+                mDispatcher = new DownloadPluginCallback.Dispatcher(this, looper);
+            }
+        }
+
+        public void onStart() {
+        }
+
+        public void onProgress(float percent) {
+        }
+
+        public abstract void onSuccess();
+
+        public abstract void onFailure(Error error);
+
+        public void sendStartMessage() {
+            mDispatcher.sendEmptyMessage(MSG_START);
+        }
+
+        public void sendProgressMessage(float progress) {
+            mDispatcher.sendMessage(mDispatcher.obtainMessage(MSG_PROGRESS, progress));
+        }
+
+        public void sendSuccessMessage() {
+            mDispatcher.sendEmptyMessage(MSG_SUCCESS);
+        }
+
+        public void sendFailureMessage(Error error) {
+            mDispatcher.sendMessage(mDispatcher.obtainMessage(MSG_FAILURE, error));
+        }
+
+        private static class Dispatcher extends Handler {
+            private DownloadPluginCallback mCallback;
+
+            Dispatcher(DownloadPluginCallback callback, Looper looper) {
+                super(looper);
+
+                mCallback = callback;
+            }
+
+            @Override
+            public void handleMessage(Message msg) {
+                switch (msg.what) {
+                    case MSG_START:
+                        mCallback.onStart();
+                        break;
+                    case MSG_PROGRESS:
+                        float percent = (float) msg.obj;
+                        mCallback.onProgress(percent);
+                        break;
+                    case MSG_SUCCESS:
+                        mCallback.onSuccess();
+                        break;
+                    case MSG_FAILURE:
+                        if (msg.obj instanceof Error) {
+                            Error error = (Error) msg.obj;
+                            mCallback.onFailure(error);
                         }
                         break;
                 }

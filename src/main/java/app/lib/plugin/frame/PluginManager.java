@@ -374,8 +374,13 @@ public class PluginManager {
         }
     }
 
-    void downloadPlugin(PluginInfo pluginInfo) {
-
+    void downloadPlugin(final PluginInfo pluginInfo, PluginApi.DownloadPluginCallback callback) {
+        if (pluginInfo == null) {
+            if (callback != null) {
+                callback.sendFailureMessage(new Error(-1, ""));
+            }
+            return;
+        }
     }
 
     void installPlugin(final PluginInfo pluginInfo, PluginPackageInfo installingPackageInfo,
