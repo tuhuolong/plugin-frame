@@ -5,6 +5,10 @@ import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
 import android.content.Intent;
+import android.text.TextUtils;
+
+import java.io.File;
+import java.lang.reflect.Method;
 
 import app.lib.plugin.frame.BuildConfig;
 import app.lib.plugin.frame.Plugin;
@@ -93,6 +97,24 @@ public class PluginHostApiImpl extends PluginHostApi {
         } else {
             startIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(startIntent);
+        }
+    }
+
+    @Override
+    public void loadLibrary(PluginContext pluginContext, String libName) {
+        if (pluginContext == null || TextUtils.isEmpty(libName)) {
+            return;
+        }
+
+        try {
+            String libPath = PluginSetting.getSoDir(getAppContext(), pluginContext.getPluginId(),
+                    pluginContext.getVersionCode()) + File.separator + "lib" + libName + ".so";
+            Method method = Runtime.getRuntime().getClass().getDeclaredMethod("load", String.class,
+                    ClassLoader.class);
+            method.setAccessible(true);
+            method.invoke(Runtime.getRuntime(), libPath, pluginContext.getClassLoader());
+        } catch (Throwable e) {
+            int h = hashCode();
         }
     }
 }
