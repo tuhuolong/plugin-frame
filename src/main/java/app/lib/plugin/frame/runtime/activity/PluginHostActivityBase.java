@@ -15,6 +15,7 @@ import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
+import android.view.Window;
 import android.view.WindowManager;
 
 import java.lang.reflect.Constructor;
@@ -86,13 +87,16 @@ public class PluginHostActivityBase extends FragmentActivity {
         }
         super.onCreate(savedInstanceState);
 
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+
         Intent intent = getIntent();
 
         String pluginId = intent.getStringExtra(KEY_PLUGIN_ID);
         int versionCode = intent.getIntExtra(KEY_VERSION_CODE, 0);
         mActivityClass = intent.getStringExtra(KEY_ACTIVITY_CLASS);
 
-        mPluginContext = PluginRuntimeManager.getInstance().getPluginContextRuntime(pluginId, versionCode);
+        mPluginContext = PluginRuntimeManager.getInstance().getPluginContextRuntime(pluginId,
+                versionCode);
 
         if (mPluginContext == null) {
             finish();
